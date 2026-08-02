@@ -79,17 +79,17 @@ class Reverb {
   final String _namespace;
   final SocketFactory _socketFactory;
   final Authorizer? _authorizer;
-  // Stored for Task 6's reconnect backoff; this single-attempt connect()
-  // does not retry, so nothing reads it yet.
-  // ignore: unused_field
   final math.Random _random;
 
   final Map<String, Channel> _channels = <String, Channel>{};
   final StreamController<ReverbState> _states =
       StreamController<ReverbState>.broadcast();
+  final List<void Function()> _reconnectedCallbacks = <void Function()>[];
 
   Connection? _connection;
   ReverbState _state = ReverbState.disconnected;
+  bool _shouldRun = false;
+  int _attempt = 0;
 
   /// The socket id assigned by the server, or null while disconnected.
   String? get socketId => _connection?.socketId;
@@ -100,36 +100,92 @@ class Reverb {
   /// Connection state changes.
   Stream<ReverbState> get states => _states.stream;
 
-  /// Opens the socket and subscribes to any channels created beforehand.
+  /// Registers [callback] to run after a dropped socket is fully restored.
+  ///
+  /// Reverb does not replay events missed while disconnected, so this is where
+  /// an application refetches whatever it may have missed. It fires only once
+  /// every previously-live channel has resubscribed, so a REST reconcile
+  /// cannot race a half-restored socket. It does not fire on first connect.
+  void onReconnected(void Function() callback) =>
+      _reconnectedCallbacks.add(callback);
+
+  /// Opens the socket, retrying with backoff until it succeeds or fails
+  /// fatally, and subscribes to any channels created beforehand.
   Future<void> connect() async {
-    if (_state == ReverbState.connected) return;
-    _setState(ReverbState.connecting);
-
-    final connection = Connection(
-      url: _url,
-      socketFactory: _socketFactory,
-      onLog: onLog,
-    );
-    _connection = connection;
-    connection.frames.listen(_onFrame);
-
-    try {
-      await connection.open();
-    } on Object catch (error, stackTrace) {
-      _setState(ReverbState.failed);
-      onError?.call(error, stackTrace);
-      return;
-    }
-
-    _setState(ReverbState.connected);
-    await _subscribeAll();
+    if (_shouldRun && _state == ReverbState.connected) return;
+    _shouldRun = true;
+    _attempt = 0;
+    await _open();
   }
 
-  /// Closes the socket. Channels and listeners are kept.
+  /// Closes the socket and stops reconnecting. Channels and listeners are kept
+  /// so that a later [connect] restores them.
   Future<void> disconnect() async {
-    await _connection?.close();
+    _shouldRun = false;
+    final connection = _connection;
     _connection = null;
+    await connection?.close();
     _setState(ReverbState.disconnected);
+  }
+
+  Future<void> _open() async {
+    while (_shouldRun) {
+      _setState(
+        _attempt == 0 ? ReverbState.connecting : ReverbState.reconnecting,
+      );
+
+      final connection = Connection(
+        url: _url,
+        socketFactory: _socketFactory,
+        onLog: onLog,
+      );
+      _connection = connection;
+      connection.frames.listen(_onFrame);
+
+      try {
+        await connection.open();
+      } on ReverbFatalError catch (error, stackTrace) {
+        _shouldRun = false;
+        _connection = null;
+        _setState(ReverbState.failed);
+        onError?.call(error, stackTrace);
+        return;
+      } on Object catch (error, stackTrace) {
+        onError?.call(error, stackTrace);
+        await Future<void>.delayed(backoffDelay(_attempt++, _random));
+        continue;
+      }
+
+      final wasReconnect = _attempt > 0;
+      _attempt = 0;
+      _setState(ReverbState.connected);
+
+      // Watch for a later drop before awaiting resubscription, so a socket
+      // that dies mid-resubscribe still schedules a retry.
+      unawaited(connection.closed.then((_) => _onDropped(connection)));
+
+      await _subscribeAll();
+      if (wasReconnect) {
+        for (final void Function() callback
+            in List<void Function()>.of(_reconnectedCallbacks)) {
+          callback();
+        }
+      }
+      return;
+    }
+  }
+
+  void _onDropped(Connection connection) {
+    // Ignore a drop reported by a socket we already replaced or closed.
+    if (!identical(_connection, connection) || !_shouldRun) return;
+
+    _connection = null;
+    _setState(ReverbState.reconnecting);
+    unawaited(
+      Future<void>.delayed(backoffDelay(_attempt++, _random)).then((_) {
+        if (_shouldRun) unawaited(_open());
+      }),
+    );
   }
 
   /// Returns the public channel named [name], creating it on first use.

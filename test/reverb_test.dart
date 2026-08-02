@@ -297,6 +297,10 @@ void main() {
 
   test('a failed connection attempt sets state to failed and reports onError',
       () async {
+    // A fatal pusher:error (4000 series) is used here rather than a plain
+    // socket close: since Task 6, connect() retries non-fatal errors with
+    // backoff instead of giving up, so only a fatal error settles to
+    // ReverbState.failed after a single attempt.
     final socket = FakeSocket();
     final errors = <Object>[];
     final reverb = reverbFor(
@@ -305,7 +309,10 @@ void main() {
     );
 
     final connected = reverb.connect();
-    await socket.serverClose();
+    socket.emitJson(<String, dynamic>{
+      'event': 'pusher:error',
+      'data': '{"code":4001,"message":"Application does not exist"}',
+    });
     await connected;
 
     expect(reverb.state, ReverbState.failed);
