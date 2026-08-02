@@ -1,6 +1,8 @@
-# laravel_reverb
+![laravel_reverb](https://raw.githubusercontent.com/gaitco/laravel_reverb/main/assets/banner.png)
 
 [![pub package](https://img.shields.io/pub/v/laravel_reverb.svg)](https://pub.dev/packages/laravel_reverb)
+[![license: MIT](https://img.shields.io/badge/license-MIT-2a3154.svg)](LICENSE)
+[![publisher](https://img.shields.io/pub/publisher/laravel_reverb.svg)](https://pub.dev/publishers/gaitco.com)
 
 A Laravel Reverb realtime client for Flutter. It speaks the Pusher wire
 protocol in pure Dart — no native plugins — with a Laravel Echo-style API:
@@ -27,6 +29,10 @@ REVERB_PORT=443
 
 These map directly onto the `Reverb` constructor: `REVERB_APP_KEY` to
 `appKey`, `REVERB_HOST` to `host`, `REVERB_PORT` to `port`.
+
+## How it fits together
+
+![Architecture: your Flutter app talks to laravel_reverb, which speaks the Pusher wire protocol to your Reverb server and authorizes private channels against /broadcasting/auth](https://raw.githubusercontent.com/gaitco/laravel_reverb/main/assets/architecture.png)
 
 ## Quick start
 

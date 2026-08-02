@@ -5,3 +5,4 @@ pubspec.lock
 .flutter-plugins
 .flutter-plugins-dependencies
 docs/
+assets/
