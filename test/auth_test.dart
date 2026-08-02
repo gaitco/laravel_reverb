@@ -107,4 +107,64 @@ void main() {
       throwsA(isA<ReverbAuthException>()),
     );
   });
+
+  test('throws ReverbAuthException when the client throws an exception',
+      () async {
+    final client = MockClient((http.Request request) {
+      throw http.ClientException('Connection failed');
+    });
+
+    final authorizer = httpAuthorizer(
+      endpoint: 'https://api.test/broadcasting/auth',
+      client: client,
+    );
+
+    await expectLater(
+      authorizer('private-users.1', '123.456'),
+      throwsA(
+        isA<ReverbAuthException>()
+            .having((ReverbAuthException e) => e.statusCode, 'statusCode', 0)
+            .having((ReverbAuthException e) => e.channelName, 'channelName',
+                'private-users.1')
+            .having((ReverbAuthException e) => e.body.contains('Connection'),
+                'body contains error', true),
+      ),
+    );
+  });
+
+  test('throws ReverbAuthException on a 200 response with invalid JSON body',
+      () async {
+    final client = MockClient((http.Request request) async {
+      return http.Response('not valid json at all', 200);
+    });
+
+    final authorizer = httpAuthorizer(
+      endpoint: 'https://api.test/broadcasting/auth',
+      client: client,
+    );
+
+    await expectLater(
+      authorizer('private-users.1', '123.456'),
+      throwsA(isA<ReverbAuthException>()),
+    );
+  });
+
+  test('throws ReverbAuthException when auth field is not a string', () async {
+    final client = MockClient((http.Request request) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{'auth': 123}),
+        200,
+      );
+    });
+
+    final authorizer = httpAuthorizer(
+      endpoint: 'https://api.test/broadcasting/auth',
+      client: client,
+    );
+
+    await expectLater(
+      authorizer('private-users.1', '123.456'),
+      throwsA(isA<ReverbAuthException>()),
+    );
+  });
 }

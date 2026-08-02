@@ -31,10 +31,12 @@ class ReverbAuthException implements Exception {
   /// The channel that failed to authorize.
   final String channelName;
 
-  /// The HTTP status code, or 200 when the body was unusable.
+  /// The HTTP status code. 200 when the response body was unusable; 0 when no
+  /// HTTP response was received (transport failure: DNS, connection, timeout, etc).
   final int statusCode;
 
-  /// The raw response body, for diagnostics.
+  /// The raw response body, for diagnostics. On transport failure, contains
+  /// the underlying error message.
   final String body;
 
   @override
@@ -54,18 +56,23 @@ Authorizer httpAuthorizer({
   final httpClient = client ?? http.Client();
 
   return (String channelName, String socketId) async {
-    final response = await httpClient.post(
-      Uri.parse(endpoint),
-      headers: <String, String>{
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...?await headers?.call(),
-      },
-      body: jsonEncode(<String, dynamic>{
-        'socket_id': socketId,
-        'channel_name': channelName,
-      }),
-    );
+    late http.Response response;
+    try {
+      response = await httpClient.post(
+        Uri.parse(endpoint),
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...?await headers?.call(),
+        },
+        body: jsonEncode(<String, dynamic>{
+          'socket_id': socketId,
+          'channel_name': channelName,
+        }),
+      );
+    } on Exception catch (e) {
+      throw ReverbAuthException(channelName, 0, e.toString());
+    }
 
     if (response.statusCode != 200) {
       throw ReverbAuthException(
