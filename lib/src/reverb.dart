@@ -59,6 +59,8 @@ class Reverb with WidgetsBindingObserver {
     this.onError,
     this.onLog,
     this.handleAppLifecycle = true,
+    this.pingInterval,
+    this.watchdogTimeout,
     @visibleForTesting SocketFactory? socketFactory,
     @visibleForTesting math.Random? random,
     @visibleForTesting http.Client Function()? httpClientFactory,
@@ -72,6 +74,16 @@ class Reverb with WidgetsBindingObserver {
           useTls: useTls,
           clientVersion: clientVersion,
         ) {
+    final ping = pingInterval;
+    final watchdog = watchdogTimeout;
+    if (ping != null && watchdog != null && watchdog <= ping) {
+      throw ArgumentError(
+        'watchdogTimeout ($watchdog) must be longer than pingInterval '
+        '($ping), otherwise the watchdog fires between pings and the client '
+        'reconnects forever.',
+      );
+    }
+
     if (authorizer != null || authEndpoint == null) {
       // Either the host owns its own client (a full authorizer override) or
       // there is no HTTP authorization at all (public channels only) — this
@@ -113,6 +125,20 @@ class Reverb with WidgetsBindingObserver {
   /// and avoids burning battery on a connection nobody is watching. Turn it
   /// off if the host application manages the socket itself.
   final bool handleAppLifecycle;
+
+  /// How often to send `pusher:ping` regardless of server activity.
+  ///
+  /// Null (the default) pings only after the server's advertised
+  /// `activity_timeout` of silence. Set it — with [watchdogTimeout] — when an
+  /// app needs a half-open socket noticed in seconds rather than a minute.
+  final Duration? pingInterval;
+
+  /// How long the socket may go without any inbound frame before it is closed
+  /// and the reconnect path takes over.
+  ///
+  /// Must be longer than [pingInterval] when both are set, or the watchdog
+  /// would fire between pings and reconnect forever.
+  final Duration? watchdogTimeout;
 
   bool _pausedByLifecycle = false;
   bool _observing = false;
@@ -235,6 +261,8 @@ class Reverb with WidgetsBindingObserver {
         url: _url,
         socketFactory: _socketFactory,
         onLog: onLog,
+        pingInterval: pingInterval,
+        watchdogTimeout: watchdogTimeout,
       );
       _connection = connection;
       connection.frames.listen(_onFrame);

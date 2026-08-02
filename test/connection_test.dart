@@ -236,4 +236,113 @@ void main() {
       expect(async.pendingTimers, isEmpty);
     });
   });
+
+  test('pings on the configured interval regardless of server activity', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      final connection = Connection(
+        url: Uri.parse('ws://localhost:8080/app/key'),
+        socketFactory: factoryFor(socket),
+        pingInterval: const Duration(seconds: 10),
+        // Deliberately far outside the 31s window elapsed below: this test's
+        // subject is the ping loop, not the watchdog (that has its own tests
+        // further down). A watchdogTimeout of 15s — the value literally in
+        // the task brief — is shorter than 31s, and since this fake server
+        // never sends anything back, the watchdog would close the socket at
+        // t=15s and cancel the ping timer with it, so only 1 of the 3
+        // expected pings would ever go out. See task-1-report.md for detail.
+        watchdogTimeout: const Duration(seconds: 100),
+      );
+
+      connection.open();
+      socket.emitJson(handshakeFrame(activityTimeout: 120));
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 31));
+
+      final pings = socket.sentJson
+          .where((Map<String, dynamic> f) => f['event'] == 'pusher:ping')
+          .length;
+      expect(pings, 3);
+    });
+  });
+
+  test('the watchdog closes a silent socket', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      final connection = Connection(
+        url: Uri.parse('ws://localhost:8080/app/key'),
+        socketFactory: factoryFor(socket),
+        watchdogTimeout: const Duration(seconds: 15),
+      );
+
+      connection.open();
+      socket.emitJson(handshakeFrame(activityTimeout: 120));
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 16));
+      async.flushMicrotasks();
+
+      expect(socket.closed, isTrue);
+    });
+  });
+
+  test('any inbound frame defers the watchdog', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      final connection = Connection(
+        url: Uri.parse('ws://localhost:8080/app/key'),
+        socketFactory: factoryFor(socket),
+        watchdogTimeout: const Duration(seconds: 15),
+      );
+
+      connection.open();
+      socket.emitJson(handshakeFrame(activityTimeout: 120));
+      async.flushMicrotasks();
+
+      // Three 10s gaps, each broken by a frame, must not trip a 15s watchdog.
+      for (var i = 0; i < 3; i++) {
+        async.elapse(const Duration(seconds: 10));
+        socket
+            .emitJson(<String, dynamic>{'event': 'pusher:pong', 'data': '{}'});
+        async.flushMicrotasks();
+      }
+
+      expect(socket.closed, isFalse);
+
+      async.elapse(const Duration(seconds: 16));
+      async.flushMicrotasks();
+      expect(socket.closed, isTrue);
+    });
+  });
+
+  test('defaults reproduce the 0.2.0 server-driven timing', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      final connection = Connection(
+        url: Uri.parse('ws://localhost:8080/app/key'),
+        socketFactory: factoryFor(socket),
+      );
+
+      connection.open();
+      socket.emitJson(handshakeFrame(activityTimeout: 30));
+      async.flushMicrotasks();
+
+      // No ping before the activity timeout elapses.
+      async.elapse(const Duration(seconds: 29));
+      expect(
+        socket.sentJson
+            .where((Map<String, dynamic> f) => f['event'] == 'pusher:ping'),
+        isEmpty,
+      );
+
+      async.elapse(const Duration(seconds: 2));
+      expect(socket.sentJson.last['event'], 'pusher:ping');
+
+      // And the socket dies one more activity timeout later, not sooner.
+      async.elapse(const Duration(seconds: 31));
+      async.flushMicrotasks();
+      expect(socket.closed, isTrue);
+    });
+  });
 }

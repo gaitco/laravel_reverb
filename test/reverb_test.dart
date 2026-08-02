@@ -638,4 +638,37 @@ void main() {
     expect(reverb.state, ReverbState.failed);
     expect(errors, isNotEmpty);
   });
+
+  test('rejects a watchdog that cannot outlive the ping interval', () {
+    expect(
+      () => Reverb(
+        host: 'localhost',
+        appKey: 'key',
+        pingInterval: const Duration(seconds: 15),
+        watchdogTimeout: const Duration(seconds: 15),
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => Reverb(
+        host: 'localhost',
+        appKey: 'key',
+        pingInterval: const Duration(seconds: 20),
+        watchdogTimeout: const Duration(seconds: 15),
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test('accepts a watchdog longer than the ping interval', () {
+    expect(
+      () => Reverb(
+        host: 'localhost',
+        appKey: 'key',
+        pingInterval: const Duration(seconds: 10),
+        watchdogTimeout: const Duration(seconds: 15),
+      ),
+      returnsNormally,
+    );
+  });
 }

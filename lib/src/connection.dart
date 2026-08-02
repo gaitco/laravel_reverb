@@ -26,6 +26,8 @@ class Connection {
     required this.url,
     required this.socketFactory,
     this.onLog,
+    this.pingInterval,
+    this.watchdogTimeout,
   });
 
   /// The socket URL, including the protocol query parameters.
@@ -37,6 +39,19 @@ class Connection {
   /// Optional log sink, so the host application controls logging.
   final void Function(String message)? onLog;
 
+  /// How often to send `pusher:ping` regardless of server activity.
+  ///
+  /// Null (the default) keeps the server-driven behaviour: ping only after
+  /// the handshake's `activity_timeout` of silence.
+  final Duration? pingInterval;
+
+  /// How long the socket may go without ANY inbound frame before it is
+  /// treated as dead and closed.
+  ///
+  /// Null (the default) keeps the server-driven behaviour: a missed pong
+  /// after a ping is what declares the socket dead.
+  final Duration? watchdogTimeout;
+
   final StreamController<ReverbFrame> _frames =
       StreamController<ReverbFrame>.broadcast();
   final Completer<void> _closed = Completer<void>();
@@ -46,6 +61,8 @@ class Connection {
   Completer<String>? _handshake;
   Timer? _idleTimer;
   Timer? _pongTimer;
+  Timer? _pingTimer;
+  Timer? _watchdogTimer;
   Duration _activityTimeout = const Duration(seconds: 120);
   String? _socketId;
   ReverbFatalError? _fatalError;
@@ -129,9 +146,7 @@ class Connection {
   }
 
   void _onMessage(dynamic raw) {
-    _restartIdleTimer();
-    _pongTimer?.cancel();
-    _pongTimer = null;
+    _onActivity();
 
     if (raw is! String) return;
     final frame = ReverbFrame.parse(raw);
@@ -169,7 +184,8 @@ class Connection {
     final timeout = frame.data['activity_timeout'];
     if (timeout is int) _activityTimeout = Duration(seconds: timeout);
 
-    _restartIdleTimer();
+    _onActivity();
+    _startPingLoop();
     onLog?.call('reverb: connected as $id');
     _handshake?.complete(id);
     _handshake = null;
@@ -216,17 +232,55 @@ class Connection {
     handshake.completeError(error);
   }
 
-  /// Sends a ping after [_activityTimeout] of silence, then treats a missing
-  /// pong within the same window as a dead socket. Reverb never notices a
-  /// half-open TCP connection on its own, so without this a backgrounded
-  /// device can sit on a socket that will never deliver another event.
+  /// Called on every inbound frame, and once when the handshake lands.
+  ///
+  /// Death detection is whichever of the two mechanisms is configured: a
+  /// watchdog on inbound silence, or the legacy pong deadline armed by
+  /// [_restartIdleTimer]. They are independent, so an app can take fast
+  /// detection without also taking a faster ping, or vice versa.
+  void _onActivity() {
+    _pongTimer?.cancel();
+    _pongTimer = null;
+
+    final watchdog = watchdogTimeout;
+    if (watchdog != null) {
+      _watchdogTimer?.cancel();
+      _watchdogTimer = Timer(watchdog, () {
+        onLog?.call(
+          'reverb: no inbound frame in ${watchdog.inSeconds}s, closing socket',
+        );
+        unawaited(close());
+      });
+    }
+
+    // The periodic ping owns ping scheduling when configured; otherwise fall
+    // back to pinging only after activity_timeout of silence.
+    if (pingInterval == null) _restartIdleTimer();
+  }
+
+  void _startPingLoop() {
+    final interval = pingInterval;
+    if (interval == null) return;
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(interval, (_) => _sendPing());
+  }
+
+  void _sendPing() {
+    send(<String, dynamic>{
+      'event': 'pusher:ping',
+      'data': <String, dynamic>{},
+    });
+  }
+
+  /// Legacy path: ping after [_activityTimeout] of silence, then treat a
+  /// missing pong within the same window as a dead socket. Only the pong
+  /// deadline is skipped when a watchdog is configured — the watchdog is
+  /// already covering death detection.
   void _restartIdleTimer() {
     _idleTimer?.cancel();
     _idleTimer = Timer(_activityTimeout, () {
-      send(<String, dynamic>{
-        'event': 'pusher:ping',
-        'data': <String, dynamic>{},
-      });
+      _sendPing();
+      if (watchdogTimeout != null) return;
       _pongTimer = Timer(_activityTimeout, () {
         onLog?.call('reverb: ping timed out, closing socket');
         unawaited(close());
@@ -239,6 +293,10 @@ class Connection {
     _idleTimer = null;
     _pongTimer?.cancel();
     _pongTimer = null;
+    _pingTimer?.cancel();
+    _pingTimer = null;
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
   }
 
   void _finish() {
