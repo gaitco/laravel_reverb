@@ -65,6 +65,7 @@ class Channel {
     required void Function(Map<String, dynamic> message) send,
     required void Function(Channel channel) onEmpty,
     required void Function(Channel channel) onFirst,
+    required this.clientEpoch,
   })  : _namespace = namespace,
         _send = send,
         _onEmpty = onEmpty,
@@ -72,6 +73,13 @@ class Channel {
 
   /// The wire channel name, including any `private-` or `presence-` prefix.
   final String name;
+
+  /// The `Reverb` client epoch this channel was created under.
+  ///
+  /// `Reverb.disconnect(forget: true)` bumps that epoch, which makes every
+  /// handle created before the logout permanently inert — re-listening on one
+  /// cannot resubscribe it under the next user's session.
+  final int clientEpoch;
 
   final String _namespace;
   final void Function(Map<String, dynamic> message) _send;
@@ -137,6 +145,7 @@ class PrivateChannel extends Channel {
     required super.send,
     required super.onEmpty,
     required super.onFirst,
+    required super.clientEpoch,
   });
 
   /// Sends a client event directly to other subscribers.
@@ -179,6 +188,7 @@ class PresenceChannel extends PrivateChannel {
     required super.send,
     required super.onEmpty,
     required super.onFirst,
+    required super.clientEpoch,
   });
 
   final Map<String, PresenceMember> _members = <String, PresenceMember>{};

@@ -208,6 +208,11 @@ class Reverb with WidgetsBindingObserver {
   /// delivered twice.
   int _generation = 0;
 
+  /// Bumped by `disconnect(forget: true)`. Distinct from `_generations`,
+  /// which is per channel name and guards a stale in-flight subscribe; this
+  /// one is per client and guards post-logout revival.
+  int _clientEpoch = 0;
+
   /// The socket id assigned by the server, or null while disconnected.
   String? get socketId => _connection?.socketId;
 
@@ -257,15 +262,31 @@ class Reverb with WidgetsBindingObserver {
     await _open();
   }
 
-  /// Closes the socket and stops reconnecting. Channels and listeners are kept
-  /// so that a later [connect] restores them.
-  Future<void> disconnect() async {
+  /// Closes the socket and stops reconnecting.
+  ///
+  /// By default channels and listeners are kept, so a later [connect]
+  /// restores them — this is what the app-lifecycle pause path wants.
+  ///
+  /// Pass `forget: true` on logout or a session wipe. That also drops every
+  /// channel, cancels pending authorization retries, and makes every handle
+  /// created before this call permanently inert, so a screen still holding a
+  /// reference to the previous user's channel cannot resubscribe it under the
+  /// next user's session. Callers get fresh handles from [channel],
+  /// [private] or [presence] after the next login.
+  Future<void> disconnect({bool forget = false}) async {
     _shouldRun = false;
     _generation++;
+    _resetPresenceRosters();
+    _markAllChannelsDown();
+
+    if (forget) {
+      _clientEpoch++;
+      _channels.clear();
+      _generations.clear();
+    }
+
     final connection = _connection;
     _connection = null;
-    _markAllChannelsDown();
-    _resetPresenceRosters();
     await connection?.close();
     // A concurrent connect() may have already restarted the client while the
     // close above was in flight; only report disconnected if nothing else
@@ -405,6 +426,7 @@ class Reverb with WidgetsBindingObserver {
           send: _send,
           onEmpty: _unsubscribe,
           onFirst: _resubscribe,
+          clientEpoch: _clientEpoch,
         ),
       );
 
@@ -427,6 +449,7 @@ class Reverb with WidgetsBindingObserver {
         send: _send,
         onEmpty: _unsubscribe,
         onFirst: _resubscribe,
+        clientEpoch: _clientEpoch,
       ),
     );
   }
@@ -445,6 +468,7 @@ class Reverb with WidgetsBindingObserver {
         send: _send,
         onEmpty: _unsubscribe,
         onFirst: _resubscribe,
+        clientEpoch: _clientEpoch,
       ),
     );
   }
@@ -529,6 +553,7 @@ class Reverb with WidgetsBindingObserver {
   /// calling [_subscribe], so it is already registered by the time
   /// [_subscribe]'s own checks run.
   void _resubscribe(Channel channel) {
+    if (channel.clientEpoch != _clientEpoch) return;
     if (_channels[channel.name] != null) return;
     _channels[channel.name] = channel;
     unawaited(_subscribe(channel));

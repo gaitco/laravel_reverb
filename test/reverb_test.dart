@@ -785,4 +785,122 @@ void main() {
 
     expect(channel.currentMembers, isEmpty);
   });
+
+  test('disconnect(forget: true) drops every channel', () async {
+    // Each FakeSocket's underlying stream can only ever be listened to once
+    // (a plain, non-broadcast StreamController), matching the real
+    // WebSocketChannel a reconnect gets from the OS. So — as
+    // reconnect_test.dart already does throughout — reconnecting after
+    // disconnect() needs a fresh socket per connect cycle, not the same one
+    // reused; reusing it makes Connection.open()'s second `listen` throw
+    // "Stream has already been listened to", which Reverb's retry loop
+    // treats as an ordinary drop and backs off on forever.
+    final sockets = <FakeSocket>[FakeSocket(), FakeSocket()];
+    var index = 0;
+    final reverb = Reverb(
+      host: 'localhost',
+      port: 8080,
+      appKey: 'key',
+      useTls: false,
+      authorizer: (String channel, String socketId) async =>
+          const ReverbAuth(auth: 'key:sig'),
+      socketFactory: (Uri _) => sockets[index++].channel,
+    );
+
+    final connected = reverb.connect();
+    sockets[0].emitJson(handshakeFrame());
+    await connected;
+
+    reverb.channel('orders').listen('OrderCreated', (_) {});
+    await settle();
+
+    await reverb.disconnect(forget: true);
+    await settle();
+
+    expect(reverb.isSubscribed('orders'), isFalse);
+
+    final second = FakeSocket();
+    final revived = Reverb(
+      host: 'localhost',
+      port: 8080,
+      appKey: 'key',
+      useTls: false,
+      socketFactory: factoryFor(second),
+    );
+    await revived.disconnect();
+
+    // Reconnecting the original client must not resubscribe the old channel.
+    final again = reverb.connect();
+    sockets[1].emitJson(handshakeFrame(socketId: 'second'));
+    await again;
+    await settle();
+
+    expect(
+      <Map<String, dynamic>>[...sockets[0].sentJson, ...sockets[1].sentJson]
+          .where((Map<String, dynamic> f) => f['event'] == 'pusher:subscribe')
+          .length,
+      1,
+    );
+  });
+
+  test('a handle held across disconnect(forget: true) cannot revive', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    final stale = reverb.channel('orders');
+    final sub = stale.listen('OrderCreated', (_) {});
+    await settle();
+
+    await reverb.disconnect(forget: true);
+    sub.cancel();
+    await settle();
+
+    final before = socket.sentJson.length;
+    stale.listen('OrderCreated', (_) {});
+    await settle();
+
+    expect(socket.sentJson.length, before);
+    expect(reverb.isSubscribed('orders'), isFalse);
+  });
+
+  test('plain disconnect still restores channels on reconnect', () async {
+    // See the note in 'disconnect(forget: true) drops every channel' above:
+    // a fresh socket per connect cycle, since each FakeSocket's stream can
+    // only be listened to once.
+    final sockets = <FakeSocket>[FakeSocket(), FakeSocket()];
+    var index = 0;
+    final reverb = Reverb(
+      host: 'localhost',
+      port: 8080,
+      appKey: 'key',
+      useTls: false,
+      authorizer: (String channel, String socketId) async =>
+          const ReverbAuth(auth: 'key:sig'),
+      socketFactory: (Uri _) => sockets[index++].channel,
+    );
+
+    final connected = reverb.connect();
+    sockets[0].emitJson(handshakeFrame());
+    await connected;
+
+    reverb.channel('orders').listen('OrderCreated', (_) {});
+    await settle();
+
+    await reverb.disconnect();
+    final again = reverb.connect();
+    sockets[1].emitJson(handshakeFrame(socketId: 'second'));
+    await again;
+    await settle();
+
+    expect(
+      <Map<String, dynamic>>[...sockets[0].sentJson, ...sockets[1].sentJson]
+          .where((Map<String, dynamic> f) => f['event'] == 'pusher:subscribe')
+          .length,
+      2,
+    );
+  });
 }

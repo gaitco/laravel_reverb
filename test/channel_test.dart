@@ -12,6 +12,7 @@ class Harness {
         send: sent.add,
         onEmpty: emptied.add,
         onFirst: firsted.add,
+        clientEpoch: 0,
       );
 
   PrivateChannel private(String name) => PrivateChannel(
@@ -20,6 +21,7 @@ class Harness {
         send: sent.add,
         onEmpty: emptied.add,
         onFirst: firsted.add,
+        clientEpoch: 0,
       );
 
   PresenceChannel presence(String name) => PresenceChannel(
@@ -28,6 +30,7 @@ class Harness {
         send: sent.add,
         onEmpty: emptied.add,
         onFirst: firsted.add,
+        clientEpoch: 0,
       );
 }
 
