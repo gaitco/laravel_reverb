@@ -14,7 +14,7 @@
 - Dependencies are exactly: `flutter`, `http`, `stream_channel`, `web_socket_channel`. Do not add others.
 - Dev dependencies are exactly: `flutter_test`, `flutter_lints`, `fake_async`.
 - Dart SDK `^3.5.0`, Flutter `>=3.24.0`.
-- `analysis_options.yaml` enables `public_member_api_docs`; every public member needs a `///` doc comment.
+- `analysis_options.yaml` is `flutter_lints` and nothing else. Every public member in `lib/` still gets a `///` doc comment — enforced by review, not by a lint, because `public_member_api_docs` and `unawaited_futures` both fire on test code where neither is wanted.
 - No public API throws into application code at runtime. Programming errors (whisper on a public channel, private channel with no authorizer configured) throw immediately at the call site; runtime conditions (auth failure, socket error) are reported through `onError`.
 - Channel names given by callers are bare (`'users.1'`). The package adds `private-` / `presence-` prefixes.
 - Event names: no leading `.` means namespaced under `App\Events`; a leading `.` means a literal `broadcastAs()` name.
@@ -78,12 +78,6 @@ dev_dependencies:
 
 ```yaml
 include: package:flutter_lints/flutter.yaml
-
-linter:
-  rules:
-    - public_member_api_docs
-    - prefer_final_locals
-    - unawaited_futures
 ```
 
 `.gitignore`:
@@ -488,6 +482,8 @@ Map<String, dynamic> handshakeFrame({
 `test/connection_test.dart`:
 
 ```dart
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_reverb/src/connection.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -654,8 +650,6 @@ void main() {
   });
 }
 ```
-
-Add `import 'dart:async';` at the top of the test file for `unawaited`.
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
@@ -1673,6 +1667,11 @@ Reverb reverbFor(
 Future<void> settle() => Future<void>.delayed(Duration.zero);
 
 void main() {
+  // Task 7 makes Reverb a WidgetsBindingObserver, which touches
+  // WidgetsBinding.instance during connect(). Initialize the test binding here
+  // so these tests keep passing once that lands.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('subscribes to a public channel after the handshake', () async {
     final socket = FakeSocket();
     final reverb = reverbFor(socket);
@@ -2180,6 +2179,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/fake_socket.dart';
 
 void main() {
+  // Task 7 makes Reverb a WidgetsBindingObserver, which touches
+  // WidgetsBinding.instance during connect(). Initialize the test binding here
+  // so these tests keep passing once that lands.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('reconnects after a drop and re-authorizes with the new socket id', () {
     fakeAsync((async) {
       final sockets = <FakeSocket>[FakeSocket(), FakeSocket()];
@@ -2791,6 +2795,7 @@ dev_dependencies:
 import 'package:flutter/material.dart';
 import 'package:flutter_reverb/flutter_reverb.dart';
 
+/// Runs the example app.
 void main() => runApp(const ExampleApp());
 
 /// Minimal example: connect, listen to a public channel, show what arrives.
