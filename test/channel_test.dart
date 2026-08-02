@@ -138,6 +138,62 @@ void main() {
     expect(received, <String, dynamic>{'user': 7});
   });
 
+  test(
+      'PrivateChannel.listenForWhisper receives a dispatched client event '
+      'with no prior listen call', () {
+    final harness = Harness();
+    final channel = harness.private('private-room.1');
+    Map<String, dynamic>? received;
+
+    channel.listenForWhisper(
+      'typing',
+      (Map<String, dynamic> data) => received = data,
+    );
+    channel.dispatch('client-typing', <String, dynamic>{'user': 7});
+
+    expect(received, <String, dynamic>{'user': 7});
+  });
+
+  test(
+    'listenForWhisper chains with listen and one cancel removes both',
+    () {
+      final harness = Harness();
+      final channel = harness.private('private-room.1');
+      var whispered = 0;
+      var broadcast = 0;
+
+      final sub = channel
+          .listenForWhisper('typing', (_) => whispered++)
+          .listen('OrderCreated', (_) => broadcast++);
+
+      channel.dispatch('client-typing', <String, dynamic>{});
+      channel.dispatch(r'App\Events\OrderCreated', <String, dynamic>{});
+      expect(<int>[whispered, broadcast], <int>[1, 1]);
+      expect(harness.emptied, isEmpty);
+
+      sub.cancel();
+      expect(harness.emptied, <Channel>[channel]);
+
+      channel.dispatch('client-typing', <String, dynamic>{});
+      channel.dispatch(r'App\Events\OrderCreated', <String, dynamic>{});
+      expect(<int>[whispered, broadcast], <int>[1, 1]);
+    },
+  );
+
+  test('PresenceChannel inherits listenForWhisper', () {
+    final harness = Harness();
+    final channel = harness.presence('presence-room.5');
+    Map<String, dynamic>? received;
+
+    channel.listenForWhisper(
+      'typing',
+      (Map<String, dynamic> data) => received = data,
+    );
+    channel.dispatch('client-typing', <String, dynamic>{'user': 7});
+
+    expect(received, <String, dynamic>{'user': 7});
+  });
+
   test('presence reports the initial member list', () {
     final harness = Harness();
     final channel = harness.presence('presence-room.5');

@@ -140,10 +140,10 @@ final reverb = Reverb(
   appKey: 'your-reverb-app-key',
   authorizer: (String channelName, String socketId) async {
     final response = await myHttpClient.post(
-      '/broadcasting/auth',
-      data: {'socket_id': socketId, 'channel_name': channelName},
+      Uri.parse('https://api.example.com/broadcasting/auth'),
+      body: {'socket_id': socketId, 'channel_name': channelName},
     );
-    return ReverbAuth(auth: response.data['auth']);
+    return ReverbAuth(auth: jsonDecode(response.body)['auth'] as String);
   },
 );
 ```

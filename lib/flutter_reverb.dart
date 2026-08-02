@@ -4,8 +4,7 @@
 /// automatic reconnection, presence channels and client events.
 library;
 
-export 'src/auth.dart'
-    show Authorizer, ReverbAuth, ReverbAuthException, httpAuthorizer;
+export 'src/auth.dart' show Authorizer, ReverbAuth, ReverbAuthException;
 export 'src/channel.dart'
     show
         Channel,

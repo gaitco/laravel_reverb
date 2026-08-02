@@ -124,6 +124,11 @@ class PrivateChannel extends Channel {
       'data': data,
     });
   }
+
+  /// Listens for a client event (whisper) and returns a chainable, cancelable
+  /// handle.
+  Subscription listenForWhisper(String event, ReverbEventCallback callback) =>
+      Subscription._(this).listenForWhisper(event, callback);
 }
 
 /// A subscriber of a presence channel.
