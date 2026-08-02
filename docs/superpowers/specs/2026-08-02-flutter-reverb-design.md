@@ -43,13 +43,19 @@ Five files. No interfaces with a single implementation.
 
 ```
 lib/flutter_reverb.dart      # public exports only
-lib/src/reverb.dart          # Reverb: channel registry, reconnect policy, app lifecycle
-lib/src/connection.dart      # WebSocket + Pusher wire protocol, ping/pong, backoff
+lib/src/protocol.dart        # pure functions: frame parsing, data decode, URL, backoff
+lib/src/connection.dart      # socket lifecycle, handshake, ping/pong
 lib/src/channel.dart         # Channel / PrivateChannel / PresenceChannel + Subscription
 lib/src/auth.dart            # default /broadcasting/auth POST
+lib/src/reverb.dart          # Reverb: channel registry, reconnect policy, app lifecycle
 ```
 
-Dependencies: `web_socket_channel`, `http`, `flutter`. Nothing else.
+Dependencies: `web_socket_channel`, `stream_channel`, `http`, `flutter`. Nothing else.
+
+`protocol.dart` holds the pure, side-effect-free half of the wire format (frame
+parsing, double-decode, URL building, backoff, event-name resolution). It is separated
+from `connection.dart` because it is the most heavily tested code in the package and
+needs no socket, real or fake, to test.
 
 **Responsibilities**
 
@@ -64,9 +70,11 @@ Dependencies: `web_socket_channel`, `http`, `flutter`. Nothing else.
   the auth payload.
 
 The socket is injectable as a plain function type
-(`WebSocketChannel Function(Uri)`, defaulting to `WebSocketChannel.connect`) solely so
-tests can drive frames without a server. This is a function parameter, not an
-abstraction layer.
+(`StreamChannel<dynamic> Function(Uri)`, defaulting to `WebSocketChannel.connect`)
+solely so tests can drive frames without a server. `WebSocketChannel` already implements
+`StreamChannel<dynamic>`, so typing the seam as the narrower interface costs nothing at
+runtime and lets tests use `StreamChannelController` instead of hand-implementing a
+WebSocket. This is a function parameter, not an abstraction layer.
 
 ## Public API
 
@@ -87,19 +95,33 @@ final sub = reverb.private('users.$id')
   .listen('OrderCreated', (data) => ...)
   .listen('.order.status.changed', (data) => ...);
 
-reverb.presence('room.5')
-  ..here((members) => ...)
-  ..joining((member) => ...)
-  ..leaving((member) => ...);
+final presenceSub = reverb.presence('room.5').members(
+  here: (members) => ...,
+  joining: (member) => ...,
+  leaving: (member) => ...,
+);
 
-channel.whisper('typing', {'user': id});
-channel.listenForWhisper('typing', (data) => ...);
+privateChannel.whisper('typing', {'user': id});
+sub.listenForWhisper('typing', (data) => ...);
 
 reverb.onReconnected(() => refetchEverything());
 reverb.connectionState;   // Stream<ReverbState>
 
 sub.cancel();   // channel unsubscribes only when its last listener is gone
 ```
+
+**`listen()` returns a chainable handle.** `Channel.listen` returns a `Subscription`
+that itself exposes `listen` and returns itself, so a chain of `listen` calls yields one
+handle whose `cancel()` removes every listener in that chain. This is what makes the
+chaining form and the cancelable-handle form the same object.
+
+**Presence uses one entry point.** `PresenceChannel.members(here:, joining:, leaving:)`
+registers all three callbacks and returns a single `Subscription`, rather than three
+separately-cancelable chaining methods with three different callback signatures.
+
+**`whisper` lives on `PrivateChannel`.** Client events are protocol-illegal on public
+channels, so the method simply does not exist there — a compile error instead of a
+runtime one.
 
 **Channel names.** Callers pass the bare name (`'users.1'`). The package adds the
 `private-` / `presence-` prefix. Passing an already-prefixed name is not supported and
