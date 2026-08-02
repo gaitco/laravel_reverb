@@ -270,7 +270,10 @@ class Reverb with WidgetsBindingObserver {
   /// Disconnects on [AppLifecycleState.paused] or [AppLifecycleState.detached]
   /// and reconnects on [AppLifecycleState.resumed], but only if this instance
   /// was the one that disconnected it — a client that was never connected, or
-  /// was explicitly disconnected by the host application, stays that way.
+  /// that the host application disconnected before this handler paused it,
+  /// stays that way. [disconnect] cannot tell why it was called, so calling it
+  /// explicitly while already paused by this handler still leaves the next
+  /// resume free to reconnect.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!handleAppLifecycle) return;
@@ -278,7 +281,13 @@ class Reverb with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
-        if (_state == ReverbState.disconnected) return;
+        // failed is permanent (fatalError paths deliberately leave _shouldRun
+        // false so nothing retries); treat it like disconnected so a
+        // background/foreground cycle can never resurrect a dead connection.
+        if (_state == ReverbState.disconnected ||
+            _state == ReverbState.failed) {
+          return;
+        }
         _pausedByLifecycle = true;
         unawaited(disconnect());
       case AppLifecycleState.resumed:
