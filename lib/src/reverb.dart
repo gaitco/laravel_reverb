@@ -239,7 +239,11 @@ class Reverb with WidgetsBindingObserver {
   /// cannot race a half-restored socket. It does not fire on first connect —
   /// but an explicit [disconnect] followed by [connect] does fire it, once
   /// that reconnect's channels are resubscribed, since from the socket's
-  /// perspective that is the same kind of restore as an unplanned drop.
+  /// perspective that is the same kind of restore as an unplanned drop. The
+  /// exception is `disconnect(forget: true)`: that clears every registered
+  /// callback (including this one) and resets the first-connect tracking, so
+  /// the following [connect] looks like a first connect and does not fire
+  /// the callbacks it just discarded.
   void onReconnected(void Function() callback) =>
       _reconnectedCallbacks.add(callback);
 

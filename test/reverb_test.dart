@@ -903,6 +903,19 @@ void main() {
     final stale = reverb.private('users.1')..listen('OrderCreated', (_) {});
     await settle();
 
+    // Sanity check on the ordinary path, before the epoch moves on: a live
+    // channel's whisper must actually reach the socket, or an inverted
+    // epoch comparison in `_sendFor` would drop every whisper silently while
+    // the rest of this test still passed.
+    stale.whisper('typing', <String, dynamic>{'user': 'A'});
+    await settle();
+    expect(
+      sockets[0]
+          .sentJson
+          .where((Map<String, dynamic> f) => f['event'] == 'client-typing'),
+      isNotEmpty,
+    );
+
     await reverb.disconnect(forget: true);
     await settle();
 
