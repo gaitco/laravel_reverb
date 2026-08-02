@@ -5,4 +5,7 @@ pubspec.lock
 .flutter-plugins
 .flutter-plugins-dependencies
 docs/
-assets/
+# assets/architecture.png ships as the pub.dev screenshot; the rest are
+# README/social art referenced by absolute URL and would only add weight.
+assets/banner.png
+assets/social-preview.png

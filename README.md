@@ -9,6 +9,38 @@ protocol in pure Dart — no native plugins — with a Laravel Echo-style API:
 chainable, cancelable listeners, automatic reconnection with re-authorization,
 presence channels, and client events (whispers).
 
+It exists because of three specific problems, each of which cost us a
+production bug in a shipped app:
+
+- **A channel outlives one screen.** Two screens listening to the same channel
+  is normal, and a bare `unsubscribe()` from either one tears it down for both.
+  Here, `listen()` returns a handle and the channel only unsubscribes when its
+  **last** listener is cancelled — so ref-counting is an invariant of the
+  package, not a `Map<String, int>` every app maintains by hand.
+- **Backgrounded apps hold dead sockets.** iOS silently kills a socket the app
+  isn't watching, and the client never notices. `handleAppLifecycle` (on by
+  default) disconnects on background and reconnects on foreground.
+- **Event names are Laravel's, not the wire's.** `listen('OrderCreated')`
+  resolves to `App\Events\OrderCreated`, and `listen('.order.created')` to a
+  `broadcastAs()` name — the same rules Laravel Echo uses, so your backend docs
+  translate directly.
+
+## Is this the right package for you?
+
+[`pusher_reverb_flutter`](https://pub.dev/packages/pusher_reverb_flutter) is a
+mature, actively maintained alternative that solves much of the same problem,
+and it is the better choice if you need any of these — none of which this
+package supports:
+
+- **Encrypted channels** (`private-encrypted-`)
+- **Pusher's hosted service**, clusters or API-key configuration — this package
+  targets self-hosted Reverb only
+- **Custom WebSocket paths**
+
+Pick this one if ref-counted channel teardown, app lifecycle handling, or
+Echo-compatible event names are what you're missing. Both are MIT and speak the
+same protocol, so switching either direction is a mechanical change.
+
 ## Install
 
 ```bash
