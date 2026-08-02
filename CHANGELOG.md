@@ -1,3 +1,31 @@
+## 0.3.0
+
+Hardening drawn from a production Reverb client running in a realtime game.
+All additive — a 0.2.0 app that changes nothing behaves identically.
+
+- **Configurable keepalive.** `pingInterval` and `watchdogTimeout` let an app
+  notice a half-open socket in seconds instead of the ~60s a server-driven
+  `activity_timeout` allows. Both default to null, which is exactly the 0.2.0
+  behaviour. `watchdogTimeout` must exceed `pingInterval`, or the constructor
+  throws `ArgumentError`.
+- **Per-channel health.** `channelHealth` is a `Stream<ChannelHealth>` of
+  per-channel up/down transitions, and `isSubscribed(wireName)` reports the
+  current value. A connected socket whose channel authorization was rejected
+  is now observable, which is what degraded-mode polling should gate on.
+- **Presence roster snapshots.** `members(roster: ...)` receives the full
+  member set on subscribe and after every join or leave, and
+  `channel.currentMembers` exposes it synchronously. The existing `here`,
+  `joining` and `leaving` callbacks are unchanged.
+- **`disconnect(forget: true)`** drops every channel and makes handles created
+  before the call inert, so a screen holding the previous user's channel
+  cannot resubscribe it under the next user's session. Plain `disconnect()` is
+  unchanged.
+- **Potentially breaking, for uncommon usage.** `Channel`, `PrivateChannel` and
+  `PresenceChannel` are exported, and their constructors gained a required
+  `clientEpoch` parameter, plus a new public `clientEpoch` getter. Applications
+  get channels from `Reverb`, never by construction, so this is very unlikely
+  to affect normal usage.
+
 ## 0.2.0
 
 Behavioural fixes and API polish from the 0.1.0 review backlog.

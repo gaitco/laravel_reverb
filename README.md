@@ -99,6 +99,13 @@ await reverb.connect();
   for `authEndpoint` (if any) — skipping it leaks the socket, the lifecycle
   observer and that client's connection pool. A client you passed in
   yourself via a custom `authorizer` is never touched — that one is yours.
+- `reverb.disconnect()` closes the socket and stops reconnecting, keeping
+  channels and listeners so a later `connect()` restores them — this is what
+  the app-lifecycle pause/resume path uses. Pass `disconnect(forget: true)`
+  on logout instead: it also drops every channel, clears registered
+  `onReconnected` callbacks, and makes every handle created before the call
+  permanently inert, so a screen still holding the previous user's channel
+  can't resubscribe it — or whisper on it — under the next user's session.
 
 ## Recipes
 
@@ -160,6 +167,19 @@ channel.members(
 );
 ```
 
+`members` also takes a `roster` callback, which receives the full member set
+on subscribe and after every join or leave — reach for it instead of
+`here`/`joining`/`leaving` when you want a live set rather than deltas:
+
+```dart
+channel.members(roster: (members) => updateSeatMap(members.values));
+```
+
+`channel.currentMembers` exposes the same set synchronously, for whenever you
+need it outside a callback. Membership does not survive a socket drop: it is
+cleared when the connection is lost and re-seeded from the server once the
+channel resubscribes.
+
 ### Whisper (client events)
 
 Whispers are only available on private and presence channels — they never
@@ -193,7 +213,9 @@ what `onReconnected` is for. It fires only after every previously-live
 channel has resubscribed (so a refetch can't race a half-restored socket),
 and it does not fire on the first successful connect — but an explicit
 `disconnect()` followed by `connect()` does fire it, since that is a real
-restore too:
+restore too. The exception is `disconnect(forget: true)`: it clears every
+registered `onReconnected` callback, so the following `connect()` has none
+left to run:
 
 ```dart
 reverb.onReconnected(() => refetch());
@@ -217,6 +239,56 @@ attempt:
 subscription.cancel();
 final channel = reverb.private('users.1'); // retries authorization
 ```
+
+## Keepalive
+
+By default, `laravel_reverb` pings only after the server's advertised
+`activity_timeout` of silence, and treats a missed pong as a dead socket —
+this is exactly 0.2.0's behaviour, and it can take close to a minute to
+notice a half-open connection. For an app that needs to notice much faster —
+a realtime game, a live dashboard — set `pingInterval` and `watchdogTimeout`:
+
+```dart
+final reverb = Reverb(
+  host: 'api.example.com',
+  appKey: 'your-reverb-app-key',
+  pingInterval: Duration(seconds: 10),
+  watchdogTimeout: Duration(seconds: 15),
+);
+```
+
+Death detection is always on, in every configuration:
+
+- **Neither set (the default):** the legacy idle-ping, backed by a pong
+  deadline.
+- **`pingInterval` alone:** a periodic ping on that schedule, still backed by
+  a pong deadline.
+- **Both set:** a periodic ping plus an inbound-frame watchdog. The watchdog
+  resets on any frame from the server, but deliberately **not** on our own
+  outbound sends — a socket that can still write but never receives is
+  exactly the failure it exists to catch.
+
+`watchdogTimeout` must be longer than `pingInterval`, or the constructor
+throws `ArgumentError` — a shorter watchdog would fire between pings and the
+client would reconnect forever.
+
+## Channel health
+
+`reverb.channelHealth` is a `Stream<ChannelHealth>` of per-channel up/down
+transitions, deliberately separate from `reverb.states`: a connected socket
+whose channel authorization was rejected is `ReverbState.connected` and
+unhealthy here, which is what degraded-mode polling should gate on rather
+than the socket state alone.
+
+```dart
+reverb.channelHealth.listen((health) {
+  if (!health.healthy) startPollingFallbackFor(health.channel);
+});
+```
+
+`health.channel` is the wire name, including any `private-`/`presence-`
+prefix. `reverb.isSubscribed(wireName)` reports the current value for one
+channel without subscribing to the stream.
 
 ## Custom authorizer
 

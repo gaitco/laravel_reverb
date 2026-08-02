@@ -37,10 +37,5 @@ documented in the README or dartdoc where it affects users today.
 
 ## Test coverage
 
-- No test drives `disconnect()`'s trailing state write racing a concurrent `connect()` (the
-  `if (!_shouldRun)` guard is verified by inspection only).
-- Presence never runs end-to-end through `Reverb` — `channel_test.dart` dispatches
-  `pusher_internal:*` frames directly into the channel, so their survival through `Connection`'s
-  event switch and `Reverb._onFrame` routing is unasserted.
 - `exports_test.dart` is a hand-maintained compile check; it cannot notice an accidental extra
   export.

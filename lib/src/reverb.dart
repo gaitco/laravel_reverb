@@ -108,7 +108,7 @@ class Reverb with WidgetsBindingObserver {
   ///
   /// Kept in sync with `pubspec.yaml`'s `version:` by hand — nothing enforces
   /// the two matching, so bump both together on every release.
-  static const String clientVersion = '0.2.0';
+  static const String clientVersion = '0.3.0';
 
   /// The maximum number of subscribe attempts for a private or presence
   /// channel, including the first, before a failing [Authorizer] is left
