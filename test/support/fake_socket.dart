@@ -36,6 +36,9 @@ class FakeSocket {
   /// Delivers raw text to the package as a server message.
   void emitRaw(String raw) => _controller.foreign.sink.add(raw);
 
+  /// Delivers [error] to the package as a stream error.
+  void emitError(Object error) => _controller.foreign.sink.addError(error);
+
   /// Closes the socket from the server side.
   Future<void> serverClose() => _controller.foreign.sink.close();
 }

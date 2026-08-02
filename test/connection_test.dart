@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_reverb/src/connection.dart';
@@ -163,5 +164,64 @@ void main() {
     });
 
     expect(socket.sentJson.last['event'], 'pusher:subscribe');
+  });
+
+  test('a stream error fails open and completes closed', () async {
+    final socket = FakeSocket();
+    final connection = connectionFor(socket);
+
+    final opened = connection.open();
+    var done = false;
+    unawaited(connection.closed.then((_) => done = true));
+
+    socket.emitError(Exception('boom'));
+
+    await expectLater(opened, throwsA(isA<Exception>()));
+    await Future<void>.delayed(Duration.zero);
+    expect(done, isTrue);
+  });
+
+  test('a frame arriving after close is ignored and does not re-arm timers',
+      () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      final connection = connectionFor(socket);
+
+      connection.open();
+      socket.emitJson(handshakeFrame());
+      async.flushMicrotasks();
+
+      unawaited(connection.close());
+      async.flushMicrotasks();
+
+      expect(
+        () => socket.emitJson(<String, dynamic>{
+          'event': r'App\Events\OrderCreated',
+          'data': '{}',
+        }),
+        returnsNormally,
+      );
+      async.flushMicrotasks();
+
+      expect(async.pendingTimers, isEmpty);
+    });
+  });
+
+  test('a handshake missing socket_id tears the connection down', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      final connection = connectionFor(socket);
+
+      final opened = connection.open();
+      unawaited(expectLater(opened, throwsA(isA<Exception>())));
+
+      socket.emitJson(<String, dynamic>{
+        'event': 'pusher:connection_established',
+        'data': jsonEncode(<String, dynamic>{'activity_timeout': 30}),
+      });
+      async.flushMicrotasks();
+
+      expect(async.pendingTimers, isEmpty);
+    });
   });
 }

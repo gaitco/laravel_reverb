@@ -63,13 +63,15 @@ class Connection {
   final Completer<void> _closed = Completer<void>();
 
   StreamChannel<dynamic>? _socket;
+  StreamSubscription<dynamic>? _subscription;
   Completer<String>? _handshake;
   Timer? _idleTimer;
   Timer? _pongTimer;
   Duration _activityTimeout = const Duration(seconds: 120);
+  String? _socketId;
 
   /// The socket id assigned by the server, or null before the handshake.
-  String? socketId;
+  String? get socketId => _socketId;
 
   /// Application-level frames. Handshake and keepalive frames are consumed
   /// internally and never appear here.
@@ -93,7 +95,7 @@ class Connection {
 
     final socket = socketFactory(url);
     _socket = socket;
-    socket.stream.listen(
+    _subscription = socket.stream.listen(
       _onMessage,
       onError: _onSocketError,
       onDone: _onSocketDone,
@@ -113,6 +115,14 @@ class Connection {
   /// Closes the socket from this side.
   Future<void> close() async {
     _stopTimers();
+    final subscription = _subscription;
+    _subscription = null;
+    // Not awaited: cancellation takes effect as soon as this call returns
+    // (no further events reach `_onMessage`), and its cleanup future — for a
+    // subscription with no `onCancel` handler — never resolves inside a
+    // `fakeAsync` zone, which would otherwise hang every test that closes a
+    // connection under `fakeAsync`.
+    unawaited(subscription?.cancel());
     final socket = _socket;
     _socket = null;
     if (socket != null) await socket.sink.close();
@@ -152,10 +162,11 @@ class Connection {
     final id = frame.data['socket_id'];
     if (id is! String) {
       _failHandshake(const ReverbConnectionClosed());
+      unawaited(close());
       return;
     }
 
-    socketId = id;
+    _socketId = id;
     final timeout = frame.data['activity_timeout'];
     if (timeout is int) _activityTimeout = Duration(seconds: timeout);
 
