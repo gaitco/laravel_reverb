@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/widgets.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'auth.dart';
@@ -30,7 +31,7 @@ enum ReverbState {
 ///
 /// Owns the channel registry, authorization and the connection lifecycle.
 /// Create one per application and keep it alive.
-class Reverb {
+class Reverb with WidgetsBindingObserver {
   /// Creates a client. Call [connect] to open the socket.
   ///
   /// Provide either [authorizer] or [authEndpoint] to use private and presence
@@ -46,6 +47,7 @@ class Reverb {
     String namespace = r'App\Events',
     this.onError,
     this.onLog,
+    this.handleAppLifecycle = true,
     SocketFactory? socketFactory,
     math.Random? random,
   })  : _namespace = namespace,
@@ -74,6 +76,16 @@ class Reverb {
 
   /// Optional log sink, so the host application controls logging.
   final void Function(String message)? onLog;
+
+  /// Whether to disconnect on background and reconnect on foreground.
+  ///
+  /// Left on, this keeps iOS from holding a socket the OS will silently kill
+  /// and avoids burning battery on a connection nobody is watching. Turn it
+  /// off if the host application manages the socket itself.
+  final bool handleAppLifecycle;
+
+  bool _pausedByLifecycle = false;
+  bool _observing = false;
 
   final Uri _url;
   final String _namespace;
@@ -118,6 +130,12 @@ class Reverb {
   /// double-tapped connect button can never open two sockets at once.
   Future<void> connect() async {
     if (_shouldRun) return;
+
+    if (handleAppLifecycle && !_observing) {
+      _observing = true;
+      WidgetsBinding.instance.addObserver(this);
+    }
+
     _shouldRun = true;
     _attempt = 0;
     await _open();
@@ -247,8 +265,38 @@ class Reverb {
     );
   }
 
+  /// Reacts to the app moving to the background or foreground.
+  ///
+  /// Disconnects on [AppLifecycleState.paused] or [AppLifecycleState.detached]
+  /// and reconnects on [AppLifecycleState.resumed], but only if this instance
+  /// was the one that disconnected it — a client that was never connected, or
+  /// was explicitly disconnected by the host application, stays that way.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!handleAppLifecycle) return;
+
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        if (_state == ReverbState.disconnected) return;
+        _pausedByLifecycle = true;
+        unawaited(disconnect());
+      case AppLifecycleState.resumed:
+        if (!_pausedByLifecycle) return;
+        _pausedByLifecycle = false;
+        unawaited(connect());
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+        break;
+    }
+  }
+
   /// Releases the state stream. Call from the host application's teardown.
   void dispose() {
+    if (_observing) {
+      _observing = false;
+      WidgetsBinding.instance.removeObserver(this);
+    }
     unawaited(disconnect());
     unawaited(_states.close());
   }
