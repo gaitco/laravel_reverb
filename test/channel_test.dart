@@ -1,0 +1,198 @@
+import 'package:flutter_reverb/src/channel.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+class Harness {
+  final List<Map<String, dynamic>> sent = <Map<String, dynamic>>[];
+  final List<Channel> emptied = <Channel>[];
+
+  Channel public(String name) => Channel(
+        name: name,
+        namespace: r'App\Events',
+        send: sent.add,
+        onEmpty: emptied.add,
+      );
+
+  PrivateChannel private(String name) => PrivateChannel(
+        name: name,
+        namespace: r'App\Events',
+        send: sent.add,
+        onEmpty: emptied.add,
+      );
+
+  PresenceChannel presence(String name) => PresenceChannel(
+        name: name,
+        namespace: r'App\Events',
+        send: sent.add,
+        onEmpty: emptied.add,
+      );
+}
+
+void main() {
+  test('dispatches a namespaced event to its listener', () {
+    final harness = Harness();
+    final channel = harness.public('orders');
+    Map<String, dynamic>? received;
+
+    channel.listen('OrderCreated', (Map<String, dynamic> data) {
+      received = data;
+    });
+    channel.dispatch(r'App\Events\OrderCreated', <String, dynamic>{'id': 7});
+
+    expect(received, <String, dynamic>{'id': 7});
+  });
+
+  test('dispatches a broadcastAs event registered with a leading dot', () {
+    final harness = Harness();
+    final channel = harness.public('orders');
+    var calls = 0;
+
+    channel.listen('.order.created', (_) => calls++);
+    channel.dispatch('order.created', <String, dynamic>{});
+
+    expect(calls, 1);
+  });
+
+  test('ignores events with no listener', () {
+    final harness = Harness();
+    final channel = harness.public('orders');
+
+    expect(
+      () => channel.dispatch('Nothing', <String, dynamic>{}),
+      returnsNormally,
+    );
+  });
+
+  test('chained listen calls share one cancelable handle', () {
+    final harness = Harness();
+    final channel = harness.public('orders');
+    var created = 0;
+    var edited = 0;
+
+    final sub = channel
+        .listen('OrderCreated', (_) => created++)
+        .listen('OrderEdited', (_) => edited++);
+
+    channel.dispatch(r'App\Events\OrderCreated', <String, dynamic>{});
+    channel.dispatch(r'App\Events\OrderEdited', <String, dynamic>{});
+    expect(<int>[created, edited], <int>[1, 1]);
+
+    sub.cancel();
+    channel.dispatch(r'App\Events\OrderCreated', <String, dynamic>{});
+    channel.dispatch(r'App\Events\OrderEdited', <String, dynamic>{});
+    expect(<int>[created, edited], <int>[1, 1]);
+  });
+
+  test('channel survives while another listener remains', () {
+    final harness = Harness();
+    final channel = harness.public('orders');
+
+    final first = channel.listen('OrderCreated', (_) {});
+    final second = channel.listen('OrderCreated', (_) {});
+
+    first.cancel();
+    expect(harness.emptied, isEmpty);
+
+    second.cancel();
+    expect(harness.emptied, <Channel>[channel]);
+  });
+
+  test('cancelling twice does not double-decrement the ref count', () {
+    final harness = Harness();
+    final channel = harness.public('orders');
+
+    final first = channel.listen('OrderCreated', (_) {});
+    final second = channel.listen('OrderCreated', (_) {});
+
+    first.cancel();
+    first.cancel();
+
+    expect(harness.emptied, isEmpty);
+    second.cancel();
+    expect(harness.emptied, <Channel>[channel]);
+  });
+
+  test('whisper sends a client prefixed event', () {
+    final harness = Harness();
+    final channel = harness.private('private-room.1');
+
+    channel.whisper('typing', <String, dynamic>{'user': 7});
+
+    expect(harness.sent.single, <String, dynamic>{
+      'event': 'client-typing',
+      'channel': 'private-room.1',
+      'data': <String, dynamic>{'user': 7},
+    });
+  });
+
+  test('listenForWhisper receives client events', () {
+    final harness = Harness();
+    final channel = harness.private('private-room.1');
+    Map<String, dynamic>? received;
+
+    channel.listen('X', (_) {}).listenForWhisper(
+          'typing',
+          (Map<String, dynamic> data) => received = data,
+        );
+    channel.dispatch('client-typing', <String, dynamic>{'user': 7});
+
+    expect(received, <String, dynamic>{'user': 7});
+  });
+
+  test('presence reports the initial member list', () {
+    final harness = Harness();
+    final channel = harness.presence('presence-room.5');
+    List<PresenceMember>? members;
+
+    channel.members(here: (List<PresenceMember> m) => members = m);
+    channel
+        .dispatch('pusher_internal:subscription_succeeded', <String, dynamic>{
+      'presence': <String, dynamic>{
+        'ids': <String>['1', '2'],
+        'hash': <String, dynamic>{
+          '1': <String, dynamic>{'name': 'Ann'},
+          '2': <String, dynamic>{'name': 'Bo'},
+        },
+      },
+    });
+
+    expect(members!.map((PresenceMember m) => m.id), <String>['1', '2']);
+    expect(members!.first.info, <String, dynamic>{'name': 'Ann'});
+  });
+
+  test('presence reports joining and leaving members', () {
+    final harness = Harness();
+    final channel = harness.presence('presence-room.5');
+    PresenceMember? joined;
+    PresenceMember? left;
+
+    channel.members(
+      joining: (PresenceMember m) => joined = m,
+      leaving: (PresenceMember m) => left = m,
+    );
+
+    channel.dispatch('pusher_internal:member_added', <String, dynamic>{
+      'user_id': '3',
+      'user_info': <String, dynamic>{'name': 'Cy'},
+    });
+    channel.dispatch(
+      'pusher_internal:member_removed',
+      <String, dynamic>{'user_id': '3'},
+    );
+
+    expect(joined!.id, '3');
+    expect(joined!.info, <String, dynamic>{'name': 'Cy'});
+    expect(left!.id, '3');
+    expect(left!.info, isEmpty);
+  });
+
+  test('presence members handle counts toward the ref count', () {
+    final harness = Harness();
+    final channel = harness.presence('presence-room.5');
+
+    final sub = channel.members(here: (_) {});
+    expect(harness.emptied, isEmpty);
+
+    sub.cancel();
+    expect(harness.emptied, <Channel>[channel]);
+  });
+}
