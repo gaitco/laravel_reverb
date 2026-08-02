@@ -16,4 +16,5 @@ export 'src/channel.dart'
         Subscription;
 export 'src/connection.dart'
     show ReverbConnectionClosed, ReverbFatalError, ReverbProtocolError;
+export 'src/exceptions.dart' show ReverbException;
 export 'src/reverb.dart' show Reverb, ReverbState;

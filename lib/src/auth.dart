@@ -2,6 +2,10 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'exceptions.dart';
+
+export 'exceptions.dart' show ReverbAuthException;
+
 /// The signature returned by Laravel's broadcasting auth endpoint.
 class ReverbAuth {
   /// Creates an auth result.
@@ -22,26 +26,6 @@ typedef Authorizer = Future<ReverbAuth> Function(
   String channelName,
   String socketId,
 );
-
-/// Raised when the broadcasting auth endpoint refuses or returns nonsense.
-class ReverbAuthException implements Exception {
-  /// Creates the exception.
-  const ReverbAuthException(this.channelName, this.statusCode, this.body);
-
-  /// The channel that failed to authorize.
-  final String channelName;
-
-  /// The HTTP status code. 200 when the response body was unusable; 0 when no
-  /// HTTP response was received (transport failure: DNS, connection, timeout, etc).
-  final int statusCode;
-
-  /// The raw response body, for diagnostics. On transport failure, contains
-  /// the underlying error message.
-  final String body;
-
-  @override
-  String toString() => 'ReverbAuthException($channelName, $statusCode): $body';
-}
 
 /// The default authorizer: POSTs JSON to Laravel's `/broadcasting/auth`.
 ///

@@ -23,4 +23,21 @@ void main() {
     );
     expect(Reverb.clientVersion, isNotEmpty);
   });
+
+  test('every error type shares the sealed ReverbException base', () {
+    // Lets hosts switch exhaustively over onError's argument instead of an
+    // is-chain; a new failure type added later without extending this base
+    // would be a regression this test catches.
+    expect(const ReverbFatalError(4001, 'x'), isA<ReverbException>());
+    expect(const ReverbProtocolError(4200, 'x'), isA<ReverbException>());
+    expect(const ReverbConnectionClosed(), isA<ReverbException>());
+    expect(
+      const ReverbAuthException('private-a', 403, 'no'),
+      isA<ReverbException>(),
+    );
+    expect(
+      const ReverbSubscriptionError('private-a', <String, dynamic>{}),
+      isA<ReverbException>(),
+    );
+  });
 }

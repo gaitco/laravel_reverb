@@ -135,12 +135,12 @@ class _OrderScreenState extends State<OrderScreen> {
 }
 ```
 
-A channel handle is only live while it has at least one listener. Once the
-last one is cancelled, the channel unsubscribes and is dropped from the
-registry — calling `listen` again on that same handle does not resend
-`pusher:subscribe`, so it silently receives nothing. Ask `reverb` for the
-channel again (`reverb.private('users.1')`, etc.) rather than reusing a
-handle whose last listener you already cancelled.
+A channel unsubscribes once its last listener is cancelled, but the handle
+itself is never left dead: calling `listen` on it again resends
+`pusher:subscribe` (re-authorizing private and presence channels against the
+current socket id) and puts it straight back to work. Asking `reverb` for the
+channel again (`reverb.private('users.1')`, etc.) still works too — it just
+isn't required.
 
 ### Presence channel
 
@@ -193,11 +193,14 @@ reverb.onReconnected(() => refetch());
 ```
 
 If an `Authorizer` throws for a given private or presence channel, that
-failure is reported through `onError` and nothing retries automatically —
-the channel stays subscribed to nothing for the rest of the session (a wrong
-signature won't fix itself). To recover, cancel every listener on it (so it
-is removed from the registry) and request it again to force a fresh
-authorization attempt:
+failure is reported through `onError` and `laravel_reverb` retries it with
+the same exponential backoff used for reconnects, up to three attempts in
+total. Every failure — including the last — is reported through `onError`,
+so a transient 500 or a token that is momentarily expired is never silent.
+Once the last attempt fails, the channel is left unsubscribed for the rest of
+the session; re-listening on the same handle (or requesting it again) forces
+a fresh authorization attempt, exactly as if it were being subscribed for
+the first time:
 
 ```dart
 subscription.cancel();

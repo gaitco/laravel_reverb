@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
+import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'auth.dart';
@@ -37,12 +38,15 @@ class Reverb with WidgetsBindingObserver {
   /// Provide either [authorizer] or [authEndpoint] to use private and presence
   /// channels; public channels need neither.
   ///
-  /// [socketFactory] and [random] are test seams, not for application use:
-  /// they let tests substitute a fake socket and a seeded/deterministic
-  /// source of backoff jitter. `socketFactory`'s type, [SocketFactory], is
-  /// internal and not exported, so it cannot be named outside this package —
-  /// pass a matching function literal instead. Both parameters are marked
-  /// `@visibleForTesting`.
+  /// [socketFactory], [random] and [httpClientFactory] are test seams, not
+  /// for application use: they let tests substitute a fake socket, a seeded/
+  /// deterministic source of backoff jitter, and a trackable HTTP client.
+  /// `socketFactory`'s type, [SocketFactory], is internal and not exported,
+  /// so it cannot be named outside this package — pass a matching function
+  /// literal instead. [httpClientFactory] is only consulted when
+  /// [authEndpoint] is set and [authorizer] is not, since that is the only
+  /// case where this class creates an `http.Client` of its own. All three
+  /// parameters are marked `@visibleForTesting`.
   Reverb({
     required String host,
     required String appKey,
@@ -57,29 +61,44 @@ class Reverb with WidgetsBindingObserver {
     this.handleAppLifecycle = true,
     @visibleForTesting SocketFactory? socketFactory,
     @visibleForTesting math.Random? random,
+    @visibleForTesting http.Client Function()? httpClientFactory,
   })  : _namespace = namespace,
         _socketFactory = socketFactory ?? WebSocketChannel.connect,
         _random = random ?? math.Random(),
-        _authorizer = authorizer ??
-            (authEndpoint == null
-                ? null
-                : httpAuthorizer(
-                    endpoint: authEndpoint,
-                    headers: authHeaders,
-                  )),
         _url = buildSocketUrl(
           host: host,
           port: port ?? (useTls ? 443 : 80),
           appKey: appKey,
           useTls: useTls,
           clientVersion: clientVersion,
-        );
+        ) {
+    if (authorizer != null || authEndpoint == null) {
+      // Either the host owns its own client (a full authorizer override) or
+      // there is no HTTP authorization at all (public channels only) — this
+      // instance has no client of its own to close in dispose().
+      _authorizer = authorizer;
+      _ownedHttpClient = null;
+    } else {
+      final client = (httpClientFactory ?? http.Client.new)();
+      _ownedHttpClient = client;
+      _authorizer = httpAuthorizer(
+        endpoint: authEndpoint,
+        headers: authHeaders,
+        client: client,
+      );
+    }
+  }
 
   /// The package version reported to the server in the socket URL.
   ///
   /// Kept in sync with `pubspec.yaml`'s `version:` by hand — nothing enforces
   /// the two matching, so bump both together on every release.
-  static const String clientVersion = '0.1.0';
+  static const String clientVersion = '0.2.0';
+
+  /// The maximum number of subscribe attempts for a private or presence
+  /// channel, including the first, before a failing [Authorizer] is left
+  /// alone for the rest of the session.
+  static const int _maxAuthAttempts = 3;
 
   /// Reports runtime failures that the package handled without throwing.
   final void Function(Object error, StackTrace? stackTrace)? onError;
@@ -100,8 +119,15 @@ class Reverb with WidgetsBindingObserver {
   final Uri _url;
   final String _namespace;
   final SocketFactory _socketFactory;
-  final Authorizer? _authorizer;
+  late final Authorizer? _authorizer;
   final math.Random _random;
+
+  /// The `http.Client` this instance created for the default HTTP
+  /// authorizer, or null when there is none (a caller-supplied [authorizer]
+  /// owns its own client, if any, and public-only usage needs no client at
+  /// all). Closed in [dispose] — a client the caller passed in is theirs to
+  /// close, not this class's.
+  late final http.Client? _ownedHttpClient;
 
   final Map<String, Channel> _channels = <String, Channel>{};
   final StreamController<ReverbState> _states =
@@ -282,14 +308,14 @@ class Reverb with WidgetsBindingObserver {
 
   /// Returns the public channel named [name], creating it on first use.
   ///
-  /// The handle returned is only live while it has at least one listener:
-  /// once the last one is cancelled, [_unsubscribe] drops the channel from
-  /// the registry and sends `pusher:unsubscribe`. A handle held past that
-  /// point is a dead object — calling `listen` on it again bumps its
-  /// listener count from 0 to 1 without ever re-sending `pusher:subscribe`,
-  /// so it silently receives nothing. Call [channel] (or [private]/
-  /// [presence]) again to get a fresh, live handle instead of reusing one
-  /// whose last listener was cancelled.
+  /// The handle returned stays usable for as long as you hold it, even
+  /// across gaps with no listeners: once the last listener is cancelled,
+  /// [_unsubscribe] drops the channel from the registry and sends
+  /// `pusher:unsubscribe`, but calling `listen` on the same handle again
+  /// puts it straight back — [_resubscribe] re-registers it and resends
+  /// `pusher:subscribe` before any event can reach it. Calling [channel]
+  /// again also works and returns a new handle, since the old one is never
+  /// left dead.
   Channel channel(String name) => _register(
         name,
         () => Channel(
@@ -297,18 +323,19 @@ class Reverb with WidgetsBindingObserver {
           namespace: _namespace,
           send: _send,
           onEmpty: _unsubscribe,
+          onFirst: _resubscribe,
         ),
       );
 
   /// Returns the private channel for the bare [name], adding the prefix.
   ///
-  /// See [channel] for why a handle is dead once its last listener is
-  /// cancelled. Private and presence channels have a second failure mode:
-  /// if [Authorizer] throws for this channel, the failure is reported
-  /// through [onError] and nothing retries — the channel stays subscribed to
-  /// nothing for the rest of the session. To recover, cancel every listener
-  /// on it (so it is removed from the registry) and call [private] again to
-  /// force a fresh authorization attempt.
+  /// See [channel] for how re-listening on a handle behaves. Re-listening
+  /// also re-authorizes: a resurrected private or presence channel calls
+  /// [Authorizer] again against the current socket id, exactly as a fresh
+  /// [private] call would. If the authorizer fails, [_subscribe] retries it
+  /// a bounded number of times with backoff before giving up for the
+  /// session; every failure, including the last, is reported through
+  /// [onError].
   PrivateChannel private(String name) {
     _requireAuthorizer('private');
     return _register(
@@ -318,14 +345,15 @@ class Reverb with WidgetsBindingObserver {
         namespace: _namespace,
         send: _send,
         onEmpty: _unsubscribe,
+        onFirst: _resubscribe,
       ),
     );
   }
 
   /// Returns the presence channel for the bare [name], adding the prefix.
   ///
-  /// See [private] for the authorizer-failure caveat, which applies here
-  /// too.
+  /// See [private] for how re-listening and authorizer retries behave, which
+  /// apply here too.
   PresenceChannel presence(String name) {
     _requireAuthorizer('presence');
     return _register(
@@ -335,6 +363,7 @@ class Reverb with WidgetsBindingObserver {
         namespace: _namespace,
         send: _send,
         onEmpty: _unsubscribe,
+        onFirst: _resubscribe,
       ),
     );
   }
@@ -382,6 +411,7 @@ class Reverb with WidgetsBindingObserver {
     }
     unawaited(disconnect());
     unawaited(_states.close());
+    _ownedHttpClient?.close();
   }
 
   T _register<T extends Channel>(String wireName, T Function() create) {
@@ -402,12 +432,35 @@ class Reverb with WidgetsBindingObserver {
     );
   }
 
+  /// Puts a dead channel handle back to work.
+  ///
+  /// [Channel] cannot tell a fresh handle from one whose last listener was
+  /// already cancelled — both go from zero listeners to one, so [Channel]
+  /// calls this either way. If [channel] is already the object registered
+  /// under its name — the ordinary case, since [_register] puts a brand new
+  /// channel there before the caller's first `listen` ever runs — there is
+  /// nothing to do. Otherwise it was dropped by [_unsubscribe] (or never
+  /// registered at all), so put it back *before* subscribing: [_subscribe]'s
+  /// own identity check only lets a subscribe through for a channel that is
+  /// already in the registry, and this is what makes a resurrected channel
+  /// pass that check legitimately rather than being treated as stale.
+  void _resubscribe(Channel channel) {
+    if (identical(_channels[channel.name], channel)) return;
+    _channels[channel.name] = channel;
+    unawaited(_subscribe(channel));
+  }
+
   /// Subscribes [channel], authorizing first when the channel is private.
   ///
   /// Silently returns when there is no live socket: channels created before
   /// connecting are flushed by [_subscribeAll] once the handshake lands, so
   /// callers never see a "not connected yet" error.
-  Future<void> _subscribe(Channel channel) async {
+  ///
+  /// If the authorizer throws, this retries with backoff up to
+  /// [_maxAuthAttempts] times (counting [attempt], which starts at 0) before
+  /// giving up on this channel for the rest of the session. Every failure,
+  /// including the last, is reported through [onError] so nothing is silent.
+  Future<void> _subscribe(Channel channel, [int attempt = 0]) async {
     final connection = _connection;
     final socketId = connection?.socketId;
     if (connection == null || socketId == null) return;
@@ -423,6 +476,23 @@ class Reverb with WidgetsBindingObserver {
         }
       } on Object catch (error, stackTrace) {
         onError?.call(error, stackTrace);
+        if (attempt + 1 >= _maxAuthAttempts) return;
+
+        await Future<void>.delayed(backoffDelay(attempt, _random));
+
+        // The socket may have been replaced (an ordinary reconnect, or a
+        // disconnect()) while this retry was backing off. A fresh
+        // _subscribeAll already re-authorized every channel against the new
+        // socket id in that case, so resuming this chain would send a stale
+        // subscribe bound to a socket id nobody accepts anymore.
+        if (_connection?.socketId != socketId) return;
+        // The caller may likewise have cancelled the channel's last listener
+        // while this was backing off, unregistering it. Identity, not just
+        // presence by name, so a same-named replacement channel registered
+        // in the meantime doesn't inherit this retry either.
+        if (!identical(_channels[channel.name], channel)) return;
+
+        unawaited(_subscribe(channel, attempt + 1));
         return;
       }
 

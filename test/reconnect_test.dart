@@ -426,6 +426,230 @@ void main() {
   });
 
   test(
+      'a transient authorizer failure retries with backoff and recovers '
+      'within the attempt cap', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      var authCalls = 0;
+      final errors = <Object>[];
+
+      final reverb = Reverb(
+        host: 'localhost',
+        port: 8080,
+        appKey: 'key',
+        useTls: false,
+        authorizer: (String channel, String socketId) async {
+          authCalls++;
+          if (authCalls < 2) {
+            throw const ReverbAuthException('private-users.1', 500, 'boom');
+          }
+          return const ReverbAuth(auth: 'key:sig');
+        },
+        socketFactory: (Uri _) => socket.channel,
+        onError: (Object e, StackTrace? _) => errors.add(e),
+      );
+
+      reverb.connect();
+      async.flushMicrotasks();
+      socket.emitJson(handshakeFrame());
+      async.flushMicrotasks();
+
+      reverb.private('users.1').listen('A', (_) {});
+      async.flushMicrotasks();
+      expect(authCalls, 1);
+      expect(errors.length, 1);
+
+      // The first retry backs off ~1-1.25s; 2s always clears the jitter.
+      async.elapse(const Duration(seconds: 2));
+
+      expect(authCalls, 2);
+      expect(
+        socket.sentJson.where(
+            (Map<String, dynamic> f) => f['event'] == 'pusher:subscribe'),
+        isNotEmpty,
+      );
+    });
+  });
+
+  test('an authorizer that always fails gives up after the attempt cap', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      var authCalls = 0;
+      final errors = <Object>[];
+
+      final reverb = Reverb(
+        host: 'localhost',
+        port: 8080,
+        appKey: 'key',
+        useTls: false,
+        authorizer: (String channel, String socketId) async {
+          authCalls++;
+          throw const ReverbAuthException('private-users.1', 500, 'boom');
+        },
+        socketFactory: (Uri _) => socket.channel,
+        onError: (Object e, StackTrace? _) => errors.add(e),
+      );
+
+      reverb.connect();
+      async.flushMicrotasks();
+      socket.emitJson(handshakeFrame());
+      async.flushMicrotasks();
+
+      reverb.private('users.1').listen('A', (_) {});
+      // 10s comfortably clears both retry backoffs (worst case ~1.25s then
+      // ~2.5s) while staying well under the connection's 30s idle-ping
+      // timeout, which would otherwise force a reconnect and confound the
+      // count with a fresh round of attempts.
+      async.elapse(const Duration(seconds: 10));
+
+      expect(authCalls, 3); // the first attempt plus two retries, then stop.
+      expect(errors.length, 3); // every failure reported, including the last.
+      expect(
+        socket.sentJson.where(
+            (Map<String, dynamic> f) => f['event'] == 'pusher:subscribe'),
+        isEmpty,
+      );
+    });
+  });
+
+  test(
+      'cancelling a channel during a pending authorizer retry never sends a '
+      'stale subscribe', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      var authCalls = 0;
+
+      final reverb = Reverb(
+        host: 'localhost',
+        port: 8080,
+        appKey: 'key',
+        useTls: false,
+        authorizer: (String channel, String socketId) async {
+          authCalls++;
+          if (authCalls == 1) {
+            throw const ReverbAuthException('private-users.1', 500, 'boom');
+          }
+          return const ReverbAuth(auth: 'key:sig');
+        },
+        socketFactory: (Uri _) => socket.channel,
+      );
+
+      reverb.connect();
+      async.flushMicrotasks();
+      socket.emitJson(handshakeFrame());
+      async.flushMicrotasks();
+
+      final sub = reverb.private('users.1').listen('A', (_) {});
+      async.flushMicrotasks();
+      expect(authCalls, 1);
+
+      sub.cancel();
+      async.elapse(const Duration(seconds: 2));
+
+      expect(authCalls, 1); // the retry never fired: the channel is gone.
+      expect(
+        socket.sentJson.where(
+            (Map<String, dynamic> f) => f['event'] == 'pusher:subscribe'),
+        isEmpty,
+      );
+    });
+  });
+
+  test('a pending authorizer retry is abandoned when the socket is replaced',
+      () {
+    fakeAsync((async) {
+      final sockets = <FakeSocket>[FakeSocket(), FakeSocket()];
+      var index = 0;
+      var authCalls = 0;
+
+      final reverb = Reverb(
+        host: 'localhost',
+        port: 8080,
+        appKey: 'key',
+        useTls: false,
+        authorizer: (String channel, String socketId) async {
+          authCalls++;
+          if (authCalls == 1) {
+            throw const ReverbAuthException('private-users.1', 500, 'boom');
+          }
+          return const ReverbAuth(auth: 'key:sig');
+        },
+        socketFactory: (Uri _) => sockets[index++].channel,
+      );
+
+      reverb.connect();
+      async.flushMicrotasks();
+      sockets[0].emitJson(handshakeFrame(socketId: 'first'));
+      async.flushMicrotasks();
+
+      reverb.private('users.1').listen('A', (_) {});
+      async.flushMicrotasks();
+      expect(authCalls, 1); // the initial attempt failed; a retry is pending.
+
+      // The socket drops before the pending retry's backoff elapses.
+      // _onDropped clears _connection immediately on the drop, so the
+      // retry's socket-id guard sees this even before the reconnect itself
+      // finishes.
+      sockets[0].serverClose();
+      async.flushMicrotasks();
+
+      // Let the retry's own backoff (scheduled against the now-dead 'first'
+      // socket) fully elapse before the reconnect completes.
+      async.elapse(const Duration(seconds: 2));
+      expect(authCalls, 1); // the stale retry aborted: no extra auth call.
+
+      sockets[1].emitJson(handshakeFrame(socketId: 'second'));
+      async.flushMicrotasks();
+
+      // The ordinary reconnect path authorizes fresh against the new id.
+      expect(authCalls, 2);
+      expect(reverb.state, ReverbState.connected);
+    });
+  });
+
+  test(
+      'a concurrent connect() during disconnect() suppresses the trailing '
+      'disconnected write', () {
+    fakeAsync((async) {
+      final sockets = <FakeSocket>[FakeSocket(), FakeSocket()];
+      var index = 0;
+
+      final reverb = Reverb(
+        host: 'localhost',
+        port: 8080,
+        appKey: 'key',
+        useTls: false,
+        socketFactory: (Uri _) => sockets[index++].channel,
+      );
+
+      final states = <ReverbState>[];
+      reverb.states.listen(states.add);
+
+      reverb.connect();
+      async.flushMicrotasks();
+      sockets[0].emitJson(handshakeFrame());
+      async.flushMicrotasks();
+      expect(reverb.state, ReverbState.connected);
+
+      // disconnect() clears _shouldRun and starts awaiting the old
+      // connection's close(), which itself suspends on the socket's own
+      // sink.close(). Before that resolves, a concurrent connect() claims
+      // _shouldRun again — the exact race the trailing `if (!_shouldRun)`
+      // guard in disconnect() exists to survive.
+      unawaited(reverb.disconnect());
+      reverb.connect();
+      async.flushMicrotasks();
+      expect(index, 2); // the explicit connect() opened a second socket.
+
+      sockets[1].emitJson(handshakeFrame());
+      async.flushMicrotasks();
+
+      expect(reverb.state, ReverbState.connected);
+      expect(states, isNot(contains(ReverbState.disconnected)));
+    });
+  });
+
+  test(
       'a fatal error arriving mid-session settles to failed instead of '
       'retrying forever', () {
     fakeAsync((async) {

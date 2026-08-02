@@ -4,12 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 class Harness {
   final List<Map<String, dynamic>> sent = <Map<String, dynamic>>[];
   final List<Channel> emptied = <Channel>[];
+  final List<Channel> firsted = <Channel>[];
 
   Channel public(String name) => Channel(
         name: name,
         namespace: r'App\Events',
         send: sent.add,
         onEmpty: emptied.add,
+        onFirst: firsted.add,
       );
 
   PrivateChannel private(String name) => PrivateChannel(
@@ -17,6 +19,7 @@ class Harness {
         namespace: r'App\Events',
         send: sent.add,
         onEmpty: emptied.add,
+        onFirst: firsted.add,
       );
 
   PresenceChannel presence(String name) => PresenceChannel(
@@ -24,6 +27,7 @@ class Harness {
         namespace: r'App\Events',
         send: sent.add,
         onEmpty: emptied.add,
+        onFirst: firsted.add,
       );
 }
 
@@ -250,5 +254,31 @@ void main() {
 
     sub.cancel();
     expect(harness.emptied, <Channel>[channel]);
+  });
+
+  test('onFirst fires when the first listener is added, not on later ones', () {
+    final harness = Harness();
+    final channel = harness.public('orders');
+
+    channel.listen('OrderCreated', (_) {});
+    expect(harness.firsted, <Channel>[channel]);
+
+    channel.listen('OrderEdited', (_) {});
+    expect(harness.firsted, <Channel>[channel]);
+  });
+
+  test('onFirst fires again once a channel that emptied gets a new listener',
+      () {
+    final harness = Harness();
+    final channel = harness.public('orders');
+
+    final sub = channel.listen('OrderCreated', (_) {});
+    expect(harness.firsted, <Channel>[channel]);
+
+    sub.cancel();
+    expect(harness.emptied, <Channel>[channel]);
+
+    channel.listen('OrderCreated', (_) {});
+    expect(harness.firsted, <Channel>[channel, channel]);
   });
 }

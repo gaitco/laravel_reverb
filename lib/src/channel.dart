@@ -1,24 +1,6 @@
 import 'protocol.dart';
 
-/// Raised when the server rejects a channel subscription.
-///
-/// The most common cause is a `/broadcasting/auth` endpoint signing with the
-/// wrong app secret: auth returns 200, `pusher:subscribe` is sent, and the
-/// server answers with `pusher:subscription_error` instead of ever
-/// dispatching an event on that channel.
-class ReverbSubscriptionError implements Exception {
-  /// Creates the error.
-  const ReverbSubscriptionError(this.channelName, this.reason);
-
-  /// The channel the server refused to subscribe.
-  final String channelName;
-
-  /// The server's decoded `pusher:subscription_error` payload.
-  final Map<String, dynamic> reason;
-
-  @override
-  String toString() => 'ReverbSubscriptionError($channelName): $reason';
-}
+export 'exceptions.dart' show ReverbSubscriptionError;
 
 /// Receives the decoded payload of a broadcast event.
 typedef ReverbEventCallback = void Function(Map<String, dynamic> data);
@@ -65,9 +47,10 @@ class Subscription {
 /// Ref-counted by listener: once the last [Subscription] returned by
 /// [listen] is cancelled, the owning `Reverb` drops this channel from its
 /// registry and unsubscribes on the wire. Calling [listen] again on the same
-/// handle after that point does not resend `pusher:subscribe` — it silently
-/// receives nothing. Get a fresh handle from `Reverb.channel` (or `private`/
-/// `presence`) instead of re-listening on one you already emptied.
+/// handle after that point resends `pusher:subscribe` and puts it back in
+/// the registry — the handle is never permanently dead, so there is no need
+/// to get a fresh one from `Reverb.channel` (or `private`/`presence`)
+/// afterwards, though doing so still works too.
 class Channel {
   /// Creates a channel. Applications get channels from `Reverb`, not directly.
   Channel({
@@ -75,9 +58,11 @@ class Channel {
     required String namespace,
     required void Function(Map<String, dynamic> message) send,
     required void Function(Channel channel) onEmpty,
+    required void Function(Channel channel) onFirst,
   })  : _namespace = namespace,
         _send = send,
-        _onEmpty = onEmpty;
+        _onEmpty = onEmpty,
+        _onFirst = onFirst;
 
   /// The wire channel name, including any `private-` or `presence-` prefix.
   final String name;
@@ -85,6 +70,7 @@ class Channel {
   final String _namespace;
   final void Function(Map<String, dynamic> message) _send;
   final void Function(Channel channel) _onEmpty;
+  final void Function(Channel channel) _onFirst;
   final Map<String, List<ReverbEventCallback>> _listeners =
       <String, List<ReverbEventCallback>>{};
 
@@ -113,9 +99,16 @@ class Channel {
   /// The remover guards against being called twice so that a double `cancel()`
   /// cannot drop the ref count below the number of live listeners and tear
   /// down a channel someone else is still using.
+  ///
+  /// Symmetrically, going from zero listeners to one calls [_onFirst] so the
+  /// owner can put this channel back to work — the mirror image of
+  /// [_onEmpty], since a handle whose last listener was cancelled is
+  /// otherwise indistinguishable from a channel nobody has listened on yet.
   void Function() _addListener(String wireEvent, ReverbEventCallback callback) {
     (_listeners[wireEvent] ??= <ReverbEventCallback>[]).add(callback);
+    final wasEmpty = _handlerCount == 0;
     _handlerCount++;
+    if (wasEmpty) _onFirst(this);
 
     var removed = false;
     return () {
@@ -137,6 +130,7 @@ class PrivateChannel extends Channel {
     required super.namespace,
     required super.send,
     required super.onEmpty,
+    required super.onFirst,
   });
 
   /// Sends a client event directly to other subscribers.
@@ -178,6 +172,7 @@ class PresenceChannel extends PrivateChannel {
     required super.namespace,
     required super.send,
     required super.onEmpty,
+    required super.onFirst,
   });
 
   /// Registers membership callbacks and returns one cancelable handle.

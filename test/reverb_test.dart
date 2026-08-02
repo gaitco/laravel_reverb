@@ -1,12 +1,32 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:laravel_reverb/src/auth.dart';
 import 'package:laravel_reverb/src/channel.dart';
 import 'package:laravel_reverb/src/connection.dart';
 import 'package:laravel_reverb/src/reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
 import 'support/fake_socket.dart';
+
+/// A minimal `http.Client` whose [close] is observable, so a test can prove
+/// `Reverb` actually closed the client it implicitly created — and, just as
+/// importantly, that it left a caller-supplied client alone.
+class _TrackingClient extends http.BaseClient {
+  int closeCalls = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    throw UnsupportedError('not used in this test');
+  }
+
+  @override
+  void close() {
+    closeCalls++;
+    super.close();
+  }
+}
 
 Reverb reverbFor(
   FakeSocket socket, {
@@ -344,6 +364,149 @@ void main() {
     expect(errors.single, isA<ReverbProtocolError>());
     expect((errors.single as ReverbProtocolError).code, isNull);
     expect(reverb.state, ReverbState.connected);
+  });
+
+  test(
+      'listening again on a handle whose last listener was cancelled '
+      'resubscribes it instead of leaving it dead', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    final channel = reverb.channel('orders');
+    final sub = channel.listen('OrderCreated', (_) {});
+    await settle();
+    sub.cancel();
+    await settle();
+
+    expect(
+      socket.sentJson.map((Map<String, dynamic> f) => f['event']),
+      containsAllInOrder(<String>['pusher:subscribe', 'pusher:unsubscribe']),
+    );
+
+    // Re-listening on the same, already-emptied handle — not a fresh handle
+    // from reverb.channel() — must resend pusher:subscribe.
+    Map<String, dynamic>? received;
+    channel.listen(
+      'OrderCreated',
+      (Map<String, dynamic> data) => received = data,
+    );
+    await settle();
+
+    expect(socket.sentJson.last, <String, dynamic>{
+      'event': 'pusher:subscribe',
+      'data': <String, dynamic>{'channel': 'orders'},
+    });
+
+    socket.emitJson(<String, dynamic>{
+      'event': r'App\Events\OrderCreated',
+      'channel': 'orders',
+      'data': '{"id":9}',
+    });
+    await settle();
+
+    expect(received, <String, dynamic>{'id': 9});
+  });
+
+  test(
+      'reviving a dead private channel handle re-authorizes against the '
+      'current socket id', () async {
+    final socket = FakeSocket();
+    final captured = <String>[];
+    final reverb = reverbFor(
+      socket,
+      authorizer: (String channel, String socketId) async {
+        captured.add('$channel@$socketId');
+        return const ReverbAuth(auth: 'key:sig');
+      },
+    );
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame(socketId: '1.1'));
+    await connected;
+
+    final channel = reverb.private('users.1');
+    final sub = channel.listen('A', (_) {});
+    await settle();
+    sub.cancel();
+    await settle();
+
+    channel.listen('B', (_) {});
+    await settle();
+
+    expect(captured, <String>['private-users.1@1.1', 'private-users.1@1.1']);
+    expect(socket.sentJson.last['event'], 'pusher:subscribe');
+  });
+
+  test(
+      'presence member events survive Connection and Reverb routing to '
+      'reach the channel', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(
+      socket,
+      authorizer: (String channel, String socketId) async =>
+          const ReverbAuth(auth: 'key:sig', channelData: '{"user_id":"7"}'),
+    );
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    PresenceMember? joined;
+    reverb
+        .presence('room.5')
+        .members(joining: (PresenceMember m) => joined = m);
+    await settle();
+
+    // Driven through the FakeSocket (not dispatched directly on the
+    // channel), so this exercises Connection's event switch and
+    // Reverb._onFrame's routing, not just Channel.dispatch in isolation.
+    socket.emitJson(<String, dynamic>{
+      'event': 'pusher_internal:member_added',
+      'channel': 'presence-room.5',
+      'data': jsonEncode(<String, dynamic>{
+        'user_id': '9',
+        'user_info': <String, dynamic>{'name': 'Zoe'},
+      }),
+    });
+    await settle();
+
+    expect(joined?.id, '9');
+    expect(joined?.info, <String, dynamic>{'name': 'Zoe'});
+  });
+
+  test('dispose closes the http.Client it created for authEndpoint', () async {
+    final tracker = _TrackingClient();
+    final reverb = Reverb(
+      host: 'localhost',
+      appKey: 'key',
+      authEndpoint: 'https://api.test/broadcasting/auth',
+      httpClientFactory: () => tracker,
+    );
+
+    reverb.dispose();
+
+    expect(tracker.closeCalls, 1);
+  });
+
+  test('dispose does not close a client the caller supplied via authorizer',
+      () async {
+    final tracker = _TrackingClient();
+    final reverb = Reverb(
+      host: 'localhost',
+      appKey: 'key',
+      authorizer: httpAuthorizer(
+        endpoint: 'https://api.test/broadcasting/auth',
+        client: tracker,
+      ),
+    );
+
+    reverb.dispose();
+
+    expect(tracker.closeCalls, 0);
   });
 
   test('a failed connection attempt sets state to failed and reports onError',

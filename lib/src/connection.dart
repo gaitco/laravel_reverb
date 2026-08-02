@@ -3,8 +3,11 @@ import 'dart:convert';
 
 import 'package:stream_channel/stream_channel.dart';
 
+import 'exceptions.dart';
 import 'protocol.dart';
 
+export 'exceptions.dart'
+    show ReverbConnectionClosed, ReverbFatalError, ReverbProtocolError;
 export 'protocol.dart' show ReverbFrame;
 
 /// Opens a socket to [url].
@@ -12,46 +15,6 @@ export 'protocol.dart' show ReverbFrame;
 /// Typed as [StreamChannel] rather than `WebSocketChannel` so that tests can
 /// substitute a controllable channel without implementing a WebSocket.
 typedef SocketFactory = StreamChannel<dynamic> Function(Uri url);
-
-/// An error that must not be retried, such as an unknown application key.
-class ReverbFatalError implements Exception {
-  /// Creates a fatal error.
-  const ReverbFatalError(this.code, this.message);
-
-  /// The `pusher:error` code.
-  final int code;
-
-  /// The human readable message from the server.
-  final String message;
-
-  @override
-  String toString() => 'ReverbFatalError($code): $message';
-}
-
-/// A non-fatal `pusher:error` from the server: worth surfacing to the host
-/// application, but not grounds to stop reconnecting.
-class ReverbProtocolError implements Exception {
-  /// Creates the error.
-  const ReverbProtocolError(this.code, this.message);
-
-  /// The `pusher:error` code, or null when the server sent none.
-  final int? code;
-
-  /// The human readable message from the server.
-  final String message;
-
-  @override
-  String toString() => 'ReverbProtocolError($code): $message';
-}
-
-/// Raised when the socket closes before the handshake completes.
-class ReverbConnectionClosed implements Exception {
-  /// Creates the exception.
-  const ReverbConnectionClosed();
-
-  @override
-  String toString() => 'ReverbConnectionClosed: socket closed before handshake';
-}
 
 /// One socket to a Reverb server, speaking the Pusher wire protocol.
 ///
@@ -98,8 +61,13 @@ class Connection {
   /// server rejection apart from an ordinary drop that is safe to retry.
   ReverbFatalError? get fatalError => _fatalError;
 
-  /// Application-level frames. Handshake and keepalive frames are consumed
-  /// internally and never appear here.
+  /// Frames this connection does not fully own itself: application-level
+  /// events, plus non-fatal `pusher:error` and `pusher:subscription_error`
+  /// (fatal errors surface through [open]'s error path instead, and never
+  /// reach this stream). Handshake and keepalive frames
+  /// (`pusher:connection_established`, `pusher:ping`, `pusher:pong`) are
+  /// consumed internally and never appear here. `Reverb` filters the two
+  /// protocol-error events out before dispatching anything to a `Channel`.
   Stream<ReverbFrame> get frames => _frames.stream;
 
   /// Completes when this connection is finished, from either side.
