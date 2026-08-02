@@ -203,4 +203,110 @@ void main() {
       expect(reverb.state, ReverbState.disconnected);
     });
   });
+
+  test(
+      'connect is not re-entrant: a second call while one is already in '
+      'flight opens no second socket', () {
+    fakeAsync((async) {
+      final sockets = <FakeSocket>[FakeSocket(), FakeSocket()];
+      var index = 0;
+
+      final reverb = Reverb(
+        host: 'localhost',
+        port: 8080,
+        appKey: 'key',
+        useTls: false,
+        socketFactory: (Uri _) => sockets[index++].channel,
+      );
+
+      // Both calls happen before any microtask runs, mirroring a
+      // double-tapped connect button.
+      reverb.connect();
+      reverb.connect();
+      async.flushMicrotasks();
+      sockets[0].emitJson(handshakeFrame());
+      async.flushMicrotasks();
+
+      expect(index, 1);
+      expect(reverb.state, ReverbState.connected);
+    });
+  });
+
+  test(
+      'onReconnected does not fire when the first connect needed retries, '
+      'but does fire after a later drop', () {
+    fakeAsync((async) {
+      final sockets = <FakeSocket>[FakeSocket(), FakeSocket(), FakeSocket()];
+      var index = 0;
+      var reconnected = 0;
+
+      final reverb = Reverb(
+        host: 'localhost',
+        port: 8080,
+        appKey: 'key',
+        useTls: false,
+        socketFactory: (Uri _) => sockets[index++].channel,
+      );
+
+      reverb.onReconnected(() => reconnected++);
+
+      reverb.connect();
+      async.flushMicrotasks();
+      // The first attempt dies before the handshake completes; the retry
+      // below happens inside the same original connect() call, before the
+      // client was ever connected.
+      sockets[0].serverClose();
+      async.elapse(const Duration(seconds: 2));
+      sockets[1].emitJson(handshakeFrame(socketId: 'first'));
+      async.flushMicrotasks();
+
+      expect(reverb.state, ReverbState.connected);
+      expect(reconnected, 0);
+
+      sockets[1].serverClose();
+      async.elapse(const Duration(seconds: 2));
+      sockets[2].emitJson(handshakeFrame(socketId: 'second'));
+      async.flushMicrotasks();
+
+      expect(reconnected, 1);
+    });
+  });
+
+  test(
+      'a fatal error arriving mid-session settles to failed instead of '
+      'retrying forever', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      var created = 0;
+      final errors = <Object>[];
+
+      final reverb = Reverb(
+        host: 'localhost',
+        port: 8080,
+        appKey: 'key',
+        useTls: false,
+        socketFactory: (Uri _) {
+          created++;
+          return socket.channel;
+        },
+        onError: (Object e, StackTrace? _) => errors.add(e),
+      );
+
+      reverb.connect();
+      async.flushMicrotasks();
+      socket.emitJson(handshakeFrame());
+      async.flushMicrotasks();
+      expect(reverb.state, ReverbState.connected);
+
+      socket.emitJson(<String, dynamic>{
+        'event': 'pusher:error',
+        'data': '{"code":4001,"message":"Application does not exist"}',
+      });
+      async.elapse(const Duration(seconds: 60));
+
+      expect(reverb.state, ReverbState.failed);
+      expect(errors.single, isA<ReverbFatalError>());
+      expect(created, 1);
+    });
+  });
 }

@@ -186,6 +186,20 @@ class Reverb {
     if (!identical(_connection, connection) || !_shouldRun) return;
 
     _connection = null;
+
+    // A fatal pusher:error arriving after the handshake already completed
+    // has no completer left to throw through, so Connection surfaces it here
+    // instead of through connection.open()'s error path. Without this check
+    // it would look like an ordinary drop and retry forever against a server
+    // that will never accept the connection again.
+    final fatalError = connection.fatalError;
+    if (fatalError != null) {
+      _shouldRun = false;
+      _setState(ReverbState.failed);
+      onError?.call(fatalError, null);
+      return;
+    }
+
     _setState(ReverbState.reconnecting);
     unawaited(
       Future<void>.delayed(backoffDelay(_attempt++, _random)).then((_) {
