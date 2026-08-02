@@ -89,6 +89,7 @@ class Reverb {
   Connection? _connection;
   ReverbState _state = ReverbState.disconnected;
   bool _shouldRun = false;
+  bool _everConnected = false;
   int _attempt = 0;
 
   /// The socket id assigned by the server, or null while disconnected.
@@ -111,8 +112,12 @@ class Reverb {
 
   /// Opens the socket, retrying with backoff until it succeeds or fails
   /// fatally, and subscribes to any channels created beforehand.
+  ///
+  /// A no-op while a connect or reconnect attempt is already in flight —
+  /// including mid-handshake or waiting out a backoff delay — so a
+  /// double-tapped connect button can never open two sockets at once.
   Future<void> connect() async {
-    if (_shouldRun && _state == ReverbState.connected) return;
+    if (_shouldRun) return;
     _shouldRun = true;
     _attempt = 0;
     await _open();
@@ -156,8 +161,9 @@ class Reverb {
         continue;
       }
 
-      final wasReconnect = _attempt > 0;
+      final wasReconnect = _everConnected;
       _attempt = 0;
+      _everConnected = true;
       _setState(ReverbState.connected);
 
       // Watch for a later drop before awaiting resubscription, so a socket

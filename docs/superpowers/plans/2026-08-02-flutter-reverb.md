@@ -10,7 +10,9 @@
 
 ## Global Constraints
 
-- Package name `flutter_reverb`, version `0.1.0`, MIT licence, published publicly to pub.dev.
+- Package name `flutter_reverb`, version `0.1.0`, MIT licence, published publicly to pub.dev under the verified publisher **gaitco.com**.
+- LICENSE copyright holder is `Ghanem Artificial Intelligence Technology (GAIT)`, not an individual.
+- `repository` and `issue_tracker` point at the GAIT GitHub org: `https://github.com/gaitco/flutter_reverb`.
 - Dependencies are exactly: `flutter`, `http`, `stream_channel`, `web_socket_channel`. Do not add others.
 - Dev dependencies are exactly: `flutter_test`, `flutter_lints`, `fake_async`.
 - Dart SDK `^3.5.0`, Flutter `>=3.24.0`.
@@ -2914,7 +2916,27 @@ jobs:
       - run: flutter test
 ```
 
-- [ ] **Step 7: Verify everything, including publish readiness**
+- [ ] **Step 7: Update package metadata for the gaitco.com publisher**
+
+Task 1 created `pubspec.yaml` and `LICENSE` with placeholder ownership. Correct both now.
+
+In `pubspec.yaml`, replace the `repository` line with these three fields:
+
+```yaml
+homepage: https://gaitco.com
+repository: https://github.com/gaitco/flutter_reverb
+issue_tracker: https://github.com/gaitco/flutter_reverb/issues
+```
+
+In `LICENSE`, change the copyright line to:
+
+```
+Copyright (c) 2026 Ghanem Artificial Intelligence Technology (GAIT)
+```
+
+Note for the README's footer: the package is published under the pub.dev verified publisher **gaitco.com**. There is no pubspec field for this — pub.dev associates a package with a publisher after the first publish, via the package's Admin tab.
+
+- [ ] **Step 8: Verify everything, including publish readiness**
 
 Run:
 
@@ -2924,7 +2946,9 @@ dart format . && flutter analyze && flutter test && flutter pub publish --dry-ru
 
 Expected: format clean, `No issues found!`, all tests PASS, and the dry run reports `Package has 0 warnings`. Fix any warnings it reports (missing `example/`, undocumented API, description length) before committing.
 
-- [ ] **Step 8: Commit**
+Do NOT run `flutter pub publish` for real. Publishing is the maintainer's action: it needs their pub.dev credentials, and the package must then be attached to the gaitco.com publisher from pub.dev's Admin tab. Record the remaining manual steps in your report.
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A

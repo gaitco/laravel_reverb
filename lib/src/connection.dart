@@ -69,9 +69,18 @@ class Connection {
   Timer? _pongTimer;
   Duration _activityTimeout = const Duration(seconds: 120);
   String? _socketId;
+  ReverbFatalError? _fatalError;
 
   /// The socket id assigned by the server, or null before the handshake.
   String? get socketId => _socketId;
+
+  /// The fatal error that ended this connection, if any.
+  ///
+  /// Set when a 4000-4099 `pusher:error` arrives after the handshake already
+  /// completed, since by then there is no completer left to throw it through.
+  /// Callers should check this once [closed] completes, to tell a fatal
+  /// server rejection apart from an ordinary drop that is safe to retry.
+  ReverbFatalError? get fatalError => _fatalError;
 
   /// Application-level frames. Handshake and keepalive frames are consumed
   /// internally and never appear here.
@@ -182,7 +191,9 @@ class Connection {
     onLog?.call('reverb: server error $code $message');
 
     if (code is int && isFatalErrorCode(code)) {
-      _failHandshake(ReverbFatalError(code, message));
+      final error = ReverbFatalError(code, message);
+      _fatalError = error;
+      _failHandshake(error);
       unawaited(close());
     }
   }
