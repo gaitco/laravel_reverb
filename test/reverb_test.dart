@@ -761,4 +761,28 @@ void main() {
     expect(health.every((ChannelHealth h) => !h.healthy), isTrue);
     expect(reverb.isSubscribed('orders'), isFalse);
   });
+
+  test('presence rosters clear when the socket drops', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    final channel = reverb.presence('room.5')..members(roster: (_) {});
+    await settle();
+    socket.emitJson(<String, dynamic>{
+      'event': 'pusher_internal:subscription_succeeded',
+      'channel': 'presence-room.5',
+      'data': '{"presence":{"ids":["1"],"hash":{"1":{"name":"Ann"}}}}',
+    });
+    await settle();
+    expect(channel.currentMembers, isNotEmpty);
+
+    await socket.serverClose();
+    await settle();
+
+    expect(channel.currentMembers, isEmpty);
+  });
 }

@@ -265,6 +265,7 @@ class Reverb with WidgetsBindingObserver {
     final connection = _connection;
     _connection = null;
     _markAllChannelsDown();
+    _resetPresenceRosters();
     await connection?.close();
     // A concurrent connect() may have already restarted the client while the
     // close above was in flight; only report disconnected if nothing else
@@ -365,12 +366,14 @@ class Reverb with WidgetsBindingObserver {
     if (fatalError != null) {
       _shouldRun = false;
       _markAllChannelsDown();
+      _resetPresenceRosters();
       _setState(ReverbState.failed);
       onError?.call(fatalError, null);
       return;
     }
 
     _markAllChannelsDown();
+    _resetPresenceRosters();
     _setState(ReverbState.reconnecting);
     final generation = _generation;
     unawaited(
@@ -695,6 +698,15 @@ class Reverb with WidgetsBindingObserver {
   void _markAllChannelsDown() {
     for (final String name in _live.toList()) {
       _setChannelHealth(name, healthy: false);
+    }
+  }
+
+  /// Clears every presence channel's roster, e.g. when the socket drops
+  /// entirely — membership does not survive a socket, and the resubscribe
+  /// re-seeds it from the server.
+  void _resetPresenceRosters() {
+    for (final Channel channel in _channels.values) {
+      if (channel is PresenceChannel) channel.resetPresence();
     }
   }
 }

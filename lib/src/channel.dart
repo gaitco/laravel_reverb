@@ -181,17 +181,59 @@ class PresenceChannel extends PrivateChannel {
     required super.onFirst,
   });
 
+  final Map<String, PresenceMember> _members = <String, PresenceMember>{};
+
+  /// The channel's current members, keyed by member id.
+  ///
+  /// Empty until the subscription is acknowledged, and cleared whenever the
+  /// socket drops — membership does not survive a socket. The map is an
+  /// unmodifiable view; mutate nothing through it.
+  Map<String, PresenceMember> get currentMembers =>
+      Map<String, PresenceMember>.unmodifiable(_members);
+
+  /// Clears the roster. Called by `Reverb` when the socket drops; the
+  /// resubscribe re-seeds it from the server.
+  void resetPresence() => _members.clear();
+
   /// Registers membership callbacks and returns one cancelable handle.
   ///
   /// A single entry point rather than three chainable methods, because the
   /// three callbacks have different signatures and are almost always wanted
   /// together.
+  ///
+  /// [roster] receives the channel's full current member set on subscribe and
+  /// after every join or leave, so a caller never has to track membership
+  /// itself. [here], [joining] and [leaving] are the delta form and still
+  /// work; use whichever suits — a join/leave toast wants the delta, a seat
+  /// map wants the roster.
   Subscription members({
+    void Function(Map<String, PresenceMember> members)? roster,
     void Function(List<PresenceMember> members)? here,
     void Function(PresenceMember member)? joining,
     void Function(PresenceMember member)? leaving,
   }) {
     final subscription = Subscription._(this);
+
+    if (roster != null) {
+      subscription._register(
+        _addListener(
+          'pusher_internal:subscription_succeeded',
+          (Map<String, dynamic> data) => roster(currentMembers),
+        ),
+      );
+      subscription._register(
+        _addListener(
+          'pusher_internal:member_added',
+          (Map<String, dynamic> data) => roster(currentMembers),
+        ),
+      );
+      subscription._register(
+        _addListener(
+          'pusher_internal:member_removed',
+          (Map<String, dynamic> data) => roster(currentMembers),
+        ),
+      );
+    }
 
     if (here != null) {
       subscription._register(
@@ -219,6 +261,33 @@ class PresenceChannel extends PrivateChannel {
     }
 
     return subscription;
+  }
+
+  /// Updates the roster from presence wire events, then dispatches as usual.
+  ///
+  /// Membership is applied here, before any listener runs, so a [roster]
+  /// callback and a [joining]/[leaving] callback registered for the same
+  /// event always observe the same state.
+  @override
+  void dispatch(String wireEvent, Map<String, dynamic> data) {
+    // Update membership BEFORE notifying listeners, so a roster callback and
+    // a joining callback observe the same state for one event.
+    switch (wireEvent) {
+      case 'pusher_internal:subscription_succeeded':
+        _members
+          ..clear()
+          ..addEntries(_parseMembers(data).map(
+            (PresenceMember m) => MapEntry<String, PresenceMember>(m.id, m),
+          ));
+      case 'pusher_internal:member_added':
+        final member = _parseMember(data);
+        _members[member.id] = member;
+      case 'pusher_internal:member_removed':
+        _members.remove(_parseMember(data).id);
+      default:
+        break;
+    }
+    super.dispatch(wireEvent, data);
   }
 
   List<PresenceMember> _parseMembers(Map<String, dynamic> data) {

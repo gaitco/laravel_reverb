@@ -281,4 +281,113 @@ void main() {
     channel.listen('OrderCreated', (_) {});
     expect(harness.firsted, <Channel>[channel, channel]);
   });
+
+  test('roster fires with the full set on seed and on every change', () {
+    final harness = Harness();
+    final channel = harness.presence('presence-room.5');
+    final snapshots = <Map<String, PresenceMember>>[];
+
+    channel.members(roster: snapshots.add);
+
+    channel
+        .dispatch('pusher_internal:subscription_succeeded', <String, dynamic>{
+      'presence': <String, dynamic>{
+        'ids': <String>['1', '2'],
+        'hash': <String, dynamic>{
+          '1': <String, dynamic>{'name': 'Ann'},
+          '2': <String, dynamic>{'name': 'Bo'},
+        },
+      },
+    });
+    channel.dispatch('pusher_internal:member_added', <String, dynamic>{
+      'user_id': '3',
+      'user_info': <String, dynamic>{'name': 'Cy'},
+    });
+    channel.dispatch(
+      'pusher_internal:member_removed',
+      <String, dynamic>{'user_id': '1'},
+    );
+
+    expect(
+        snapshots.map((Map<String, PresenceMember> m) => m.keys.toSet()),
+        <Set<String>>[
+          <String>{'1', '2'},
+          <String>{'1', '2', '3'},
+          <String>{'2', '3'},
+        ]);
+    expect(snapshots.last['3']!.info, <String, dynamic>{'name': 'Cy'});
+  });
+
+  test('currentMembers matches the latest roster and is unmodifiable', () {
+    final harness = Harness();
+    final channel = harness.presence('presence-room.5');
+
+    expect(channel.currentMembers, isEmpty);
+
+    channel.members(roster: (_) {});
+    channel
+        .dispatch('pusher_internal:subscription_succeeded', <String, dynamic>{
+      'presence': <String, dynamic>{
+        'ids': <String>['1'],
+        'hash': <String, dynamic>{
+          '1': <String, dynamic>{'name': 'Ann'},
+        },
+      },
+    });
+
+    expect(channel.currentMembers.keys, <String>['1']);
+    expect(
+      () => channel.currentMembers['2'] =
+          const PresenceMember(id: '2', info: <String, dynamic>{}),
+      throwsUnsupportedError,
+    );
+  });
+
+  test('resetPresence clears the roster', () {
+    final harness = Harness();
+    final channel = harness.presence('presence-room.5');
+
+    channel.members(roster: (_) {});
+    channel
+        .dispatch('pusher_internal:subscription_succeeded', <String, dynamic>{
+      'presence': <String, dynamic>{
+        'ids': <String>['1'],
+        'hash': <String, dynamic>{'1': <String, dynamic>{}},
+      },
+    });
+    expect(channel.currentMembers, isNotEmpty);
+
+    channel.resetPresence();
+    expect(channel.currentMembers, isEmpty);
+  });
+
+  test('a roster handler alone holds the channel subscribed', () {
+    final harness = Harness();
+    final channel = harness.presence('presence-room.5');
+
+    final sub = channel.members(roster: (_) {});
+    expect(harness.emptied, isEmpty);
+
+    sub.cancel();
+    expect(harness.emptied, <Channel>[channel]);
+  });
+
+  test('roster and the delta callbacks coexist', () {
+    final harness = Harness();
+    final channel = harness.presence('presence-room.5');
+    var rosters = 0;
+    PresenceMember? joined;
+
+    channel.members(
+      roster: (_) => rosters++,
+      joining: (PresenceMember m) => joined = m,
+    );
+    channel.dispatch('pusher_internal:member_added', <String, dynamic>{
+      'user_id': '3',
+      'user_info': <String, dynamic>{'name': 'Cy'},
+    });
+
+    expect(rosters, 1);
+    expect(joined!.id, '3');
+  });
 }
