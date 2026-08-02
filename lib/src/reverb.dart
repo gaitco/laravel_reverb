@@ -129,8 +129,13 @@ class Reverb with WidgetsBindingObserver {
   /// How often to send `pusher:ping` regardless of server activity.
   ///
   /// Null (the default) pings only after the server's advertised
-  /// `activity_timeout` of silence. Set it — with [watchdogTimeout] — when an
-  /// app needs a half-open socket noticed in seconds rather than a minute.
+  /// `activity_timeout` of silence, with a missed pong as death detection.
+  /// Set alone, pings run on this schedule instead, but a missed pong after
+  /// each ping still closes the socket — death detection is always on,
+  /// whatever the configuration. Set together with [watchdogTimeout], the
+  /// watchdog replaces the pong deadline: it resets on any inbound frame,
+  /// letting an app notice a half-open socket in seconds rather than a
+  /// minute.
   final Duration? pingInterval;
 
   /// How long the socket may go without any inbound frame before it is closed

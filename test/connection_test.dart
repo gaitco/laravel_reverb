@@ -345,4 +345,85 @@ void main() {
       expect(socket.closed, isTrue);
     });
   });
+
+  test(
+      'pingInterval alone still detects a dead socket instead of pinging '
+      'forever', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      final connection = Connection(
+        url: Uri.parse('ws://localhost:8080/app/key'),
+        socketFactory: factoryFor(socket),
+        pingInterval: const Duration(seconds: 10),
+      );
+
+      connection.open();
+      // 25s, not a multiple of the 10s ping interval, so the pong deadline
+      // armed by the first ping (at t=10, firing at t=35) never lands on the
+      // same tick as a scheduled ping — keeps the assertions below exact.
+      socket.emitJson(handshakeFrame(activityTimeout: 25));
+      async.flushMicrotasks();
+
+      // The socket never replies to anything. Pings go out on schedule, but
+      // each one after the first must find a deadline already ticking and
+      // decline to push it back out — otherwise this socket would be pinged
+      // forever with no death detection at all.
+      async.elapse(const Duration(seconds: 34));
+      expect(socket.closed, isFalse);
+      expect(
+        socket.sentJson
+            .where((Map<String, dynamic> f) => f['event'] == 'pusher:ping')
+            .length,
+        3, // t=10, 20, 30
+      );
+
+      async.elapse(const Duration(seconds: 2));
+      async.flushMicrotasks();
+      expect(socket.closed, isTrue);
+    });
+  });
+
+  test(
+      'the primary configuration keeps a healthy socket alive and closes a '
+      'truly dead one', () {
+    fakeAsync((async) {
+      final socket = FakeSocket();
+      final connection = Connection(
+        url: Uri.parse('ws://localhost:8080/app/key'),
+        socketFactory: factoryFor(socket),
+        pingInterval: const Duration(seconds: 10),
+        watchdogTimeout: const Duration(seconds: 15),
+      );
+
+      connection.open();
+      socket.emitJson(handshakeFrame(activityTimeout: 120));
+      async.flushMicrotasks();
+
+      // A real Reverb server echoes every ping with a pong. Six round trips
+      // comfortably outlast the 15s watchdog, proving the periodic ping plus
+      // the inbound pong keep resetting it indefinitely — not just in
+      // isolation (the ping-loop and watchdog tests above), but together.
+      for (var i = 0; i < 6; i++) {
+        async.elapse(const Duration(seconds: 10));
+        async.flushMicrotasks();
+        expect(socket.sentJson.last['event'], 'pusher:ping');
+        socket
+            .emitJson(<String, dynamic>{'event': 'pusher:pong', 'data': '{}'});
+        async.flushMicrotasks();
+      }
+
+      expect(socket.closed, isFalse);
+      expect(
+        socket.sentJson
+            .where((Map<String, dynamic> f) => f['event'] == 'pusher:ping')
+            .length,
+        6,
+      );
+
+      // The server goes dark. The watchdog, not the ping loop, notices.
+      async.elapse(const Duration(seconds: 16));
+      async.flushMicrotasks();
+      expect(socket.closed, isTrue);
+    });
+  });
 }

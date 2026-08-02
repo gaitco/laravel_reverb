@@ -42,7 +42,16 @@ class Connection {
   /// How often to send `pusher:ping` regardless of server activity.
   ///
   /// Null (the default) keeps the server-driven behaviour: ping only after
-  /// the handshake's `activity_timeout` of silence.
+  /// the handshake's `activity_timeout` of silence, with the legacy pong
+  /// deadline as death detection.
+  ///
+  /// Set alone, pings run on this schedule instead, but death detection is
+  /// still on: each ping arms the same pong deadline the legacy path uses,
+  /// so a socket that never replies is closed rather than pinged forever.
+  ///
+  /// Set together with [watchdogTimeout], the watchdog replaces the pong
+  /// deadline as death detection — it resets on any inbound frame, not just
+  /// a reply to our own ping.
   final Duration? pingInterval;
 
   /// How long the socket may go without ANY inbound frame before it is
@@ -236,8 +245,9 @@ class Connection {
   ///
   /// Death detection is whichever of the two mechanisms is configured: a
   /// watchdog on inbound silence, or the legacy pong deadline armed by
-  /// [_restartIdleTimer]. They are independent, so an app can take fast
-  /// detection without also taking a faster ping, or vice versa.
+  /// [_armPongDeadline] after every ping. They are independent, so an app
+  /// can take fast detection without also taking a faster ping, or vice
+  /// versa — but one of the two is always live, whatever the configuration.
   void _onActivity() {
     _pongTimer?.cancel();
     _pongTimer = null;
@@ -262,7 +272,10 @@ class Connection {
     final interval = pingInterval;
     if (interval == null) return;
     _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(interval, (_) => _sendPing());
+    _pingTimer = Timer.periodic(interval, (_) {
+      _sendPing();
+      _armPongDeadline();
+    });
   }
 
   void _sendPing() {
@@ -272,19 +285,31 @@ class Connection {
     });
   }
 
+  /// Arms the legacy pong deadline after a ping just went out, unless a
+  /// watchdog is configured (it already covers death detection, and running
+  /// both would race two detectors against one dead socket) or a deadline
+  /// from an earlier, still-unanswered ping is already ticking.
+  ///
+  /// That last guard matters once [pingInterval] drives scheduling: pings
+  /// then fire on a fixed cadence independent of replies, so without it
+  /// every new ping would cancel and replace the previous deadline before it
+  /// could ever fire — chasing it forever and silently disabling death
+  /// detection for a socket that never replies to anything.
+  void _armPongDeadline() {
+    if (watchdogTimeout != null || _pongTimer != null) return;
+    _pongTimer = Timer(_activityTimeout, () {
+      onLog?.call('reverb: ping timed out, closing socket');
+      unawaited(close());
+    });
+  }
+
   /// Legacy path: ping after [_activityTimeout] of silence, then treat a
-  /// missing pong within the same window as a dead socket. Only the pong
-  /// deadline is skipped when a watchdog is configured — the watchdog is
-  /// already covering death detection.
+  /// missing pong within the same window as a dead socket.
   void _restartIdleTimer() {
     _idleTimer?.cancel();
     _idleTimer = Timer(_activityTimeout, () {
       _sendPing();
-      if (watchdogTimeout != null) return;
-      _pongTimer = Timer(_activityTimeout, () {
-        onLog?.call('reverb: ping timed out, closing socket');
-        unawaited(close());
-      });
+      _armPongDeadline();
     });
   }
 
