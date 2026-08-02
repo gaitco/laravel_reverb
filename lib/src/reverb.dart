@@ -268,21 +268,44 @@ class Reverb with WidgetsBindingObserver {
   /// restores them — this is what the app-lifecycle pause path wants.
   ///
   /// Pass `forget: true` on logout or a session wipe. That also drops every
-  /// channel, cancels pending authorization retries, and makes every handle
-  /// created before this call permanently inert, so a screen still holding a
-  /// reference to the previous user's channel cannot resubscribe it under the
-  /// next user's session. Callers get fresh handles from [channel],
-  /// [private] or [presence] after the next login.
+  /// channel, cancels pending authorization retries, discards every
+  /// [onReconnected] callback, and makes every handle created before this
+  /// call permanently inert — it cannot resubscribe, and any send it
+  /// attempts (including [PrivateChannel.whisper]) is silently dropped
+  /// rather than going out over the next user's socket. Callers get fresh
+  /// handles from [channel], [private] or [presence], and re-register
+  /// [onReconnected] callbacks, after the next login.
   Future<void> disconnect({bool forget = false}) async {
     _shouldRun = false;
     _generation++;
-    _resetPresenceRosters();
     _markAllChannelsDown();
+    // Must run before _channels.clear() below: it walks _channels to reset
+    // each PresenceChannel's roster, so clearing the registry first would
+    // leave a stale handle's roster holding the previous user's membership.
+    _resetPresenceRosters();
 
     if (forget) {
       _clientEpoch++;
       _channels.clear();
+      // Resets the per-channel-name generation to 0 for every name. This is
+      // not what stops a pending authorizer retry — _subscribe re-checks
+      // `(_generations[name] ?? 0) == generation`, and a retry that captured
+      // 0 still matches 0 after this clear. What actually strands it is
+      // _channels.clear() just above: current()'s identity check
+      // (`identical(_channels[channel.name], channel)`) fails once the
+      // channel is gone from the registry, on top of the existing
+      // socket-id guard. This clear exists so a channel name freed by
+      // forget starts its next life at generation 0 instead of some
+      // arbitrary leftover count.
       _generations.clear();
+      // onReconnected callbacks close over whichever session registered
+      // them; without clearing them here, the next user's first connect
+      // would run the previous user's reconcile logic. Resetting
+      // _everConnected makes that connect look like a first connect (per
+      // its own doc comment) rather than a reconnect, which is also what
+      // suppresses onReconnected from firing at all until a later drop.
+      _reconnectedCallbacks.clear();
+      _everConnected = false;
     }
 
     final connection = _connection;
@@ -423,7 +446,7 @@ class Reverb with WidgetsBindingObserver {
         () => Channel(
           name: name,
           namespace: _namespace,
-          send: _send,
+          send: _sendFor(_clientEpoch),
           onEmpty: _unsubscribe,
           onFirst: _resubscribe,
           clientEpoch: _clientEpoch,
@@ -446,7 +469,7 @@ class Reverb with WidgetsBindingObserver {
       () => PrivateChannel(
         name: 'private-$name',
         namespace: _namespace,
-        send: _send,
+        send: _sendFor(_clientEpoch),
         onEmpty: _unsubscribe,
         onFirst: _resubscribe,
         clientEpoch: _clientEpoch,
@@ -465,7 +488,7 @@ class Reverb with WidgetsBindingObserver {
       () => PresenceChannel(
         name: 'presence-$name',
         namespace: _namespace,
-        send: _send,
+        send: _sendFor(_clientEpoch),
         onEmpty: _unsubscribe,
         onFirst: _resubscribe,
         clientEpoch: _clientEpoch,
@@ -660,7 +683,23 @@ class Reverb with WidgetsBindingObserver {
     });
   }
 
-  void _send(Map<String, dynamic> message) => _connection?.send(message);
+  /// Returns the `send` function a channel uses for
+  /// [PrivateChannel.whisper], bound to [epoch].
+  ///
+  /// Subscribing and unsubscribing always go through [_subscribe] and
+  /// [_unsubscribe], which the `clientEpoch` check in [_resubscribe] already
+  /// guards. [PrivateChannel.whisper] is different: it calls
+  /// [Channel._sendMessage] directly, with no listen/cancel and so no trip
+  /// through [_resubscribe] in between, so a stale handle held across
+  /// `disconnect(forget: true)` could otherwise whisper straight onto the
+  /// next user's socket. Binding this send to the epoch the channel was
+  /// created under closes that gap: once [_clientEpoch] has moved on, a
+  /// whisper through this channel is a silent no-op instead of reaching the
+  /// new socket.
+  void Function(Map<String, dynamic> message) _sendFor(int epoch) =>
+      (Map<String, dynamic> message) {
+        if (epoch == _clientEpoch) _connection?.send(message);
+      };
 
   void _onFrame(ReverbFrame frame) {
     switch (frame.event) {

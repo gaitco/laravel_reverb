@@ -819,16 +819,6 @@ void main() {
 
     expect(reverb.isSubscribed('orders'), isFalse);
 
-    final second = FakeSocket();
-    final revived = Reverb(
-      host: 'localhost',
-      port: 8080,
-      appKey: 'key',
-      useTls: false,
-      socketFactory: factoryFor(second),
-    );
-    await revived.disconnect();
-
     // Reconnecting the original client must not resubscribe the old channel.
     final again = reverb.connect();
     sockets[1].emitJson(handshakeFrame(socketId: 'second'));
@@ -836,19 +826,31 @@ void main() {
     await settle();
 
     expect(
-      <Map<String, dynamic>>[...sockets[0].sentJson, ...sockets[1].sentJson]
-          .where((Map<String, dynamic> f) => f['event'] == 'pusher:subscribe')
-          .length,
-      1,
+      sockets[1]
+          .sentJson
+          .where((Map<String, dynamic> f) => f['event'] == 'pusher:subscribe'),
+      isEmpty,
     );
   });
 
   test('a handle held across disconnect(forget: true) cannot revive', () async {
-    final socket = FakeSocket();
-    final reverb = reverbFor(socket);
+    // Two sockets, as above: this test reconnects for real, under a second
+    // "session", and proves a handle from the first session cannot land a
+    // subscribe on it.
+    final sockets = <FakeSocket>[FakeSocket(), FakeSocket()];
+    var index = 0;
+    final reverb = Reverb(
+      host: 'localhost',
+      port: 8080,
+      appKey: 'key',
+      useTls: false,
+      authorizer: (String channel, String socketId) async =>
+          const ReverbAuth(auth: 'key:sig'),
+      socketFactory: (Uri _) => sockets[index++].channel,
+    );
 
     final connected = reverb.connect();
-    socket.emitJson(handshakeFrame());
+    sockets[0].emitJson(handshakeFrame());
     await connected;
 
     final stale = reverb.channel('orders');
@@ -856,15 +858,102 @@ void main() {
     await settle();
 
     await reverb.disconnect(forget: true);
-    sub.cancel();
     await settle();
 
-    final before = socket.sentJson.length;
+    // The next user logs in on a fresh socket.
+    final again = reverb.connect();
+    sockets[1].emitJson(handshakeFrame(socketId: 'second'));
+    await again;
+    await settle();
+
+    // The screen holding `stale` rebuilds: its old listener goes away and it
+    // listens again, exactly how reviving a handle ordinarily works.
+    sub.cancel();
     stale.listen('OrderCreated', (_) {});
     await settle();
 
-    expect(socket.sentJson.length, before);
+    expect(
+      sockets[1]
+          .sentJson
+          .where((Map<String, dynamic> f) => f['event'] == 'pusher:subscribe'),
+      isEmpty,
+    );
     expect(reverb.isSubscribed('orders'), isFalse);
+  });
+
+  test(
+      'a stale handle cannot whisper onto the next session after '
+      'disconnect(forget: true)', () async {
+    final sockets = <FakeSocket>[FakeSocket(), FakeSocket()];
+    var index = 0;
+    final reverb = Reverb(
+      host: 'localhost',
+      port: 8080,
+      appKey: 'key',
+      useTls: false,
+      authorizer: (String channel, String socketId) async =>
+          const ReverbAuth(auth: 'key:sig'),
+      socketFactory: (Uri _) => sockets[index++].channel,
+    );
+
+    final connected = reverb.connect();
+    sockets[0].emitJson(handshakeFrame());
+    await connected;
+
+    final stale = reverb.private('users.1')..listen('OrderCreated', (_) {});
+    await settle();
+
+    await reverb.disconnect(forget: true);
+    await settle();
+
+    // The next user logs in on a fresh socket.
+    final again = reverb.connect();
+    sockets[1].emitJson(handshakeFrame(socketId: 'second'));
+    await again;
+    await settle();
+
+    // Whisper never goes through listen/cancel or _resubscribe at all, so it
+    // needs its own check that the send is bound to the epoch the channel was
+    // created under.
+    stale.whisper('typing', <String, dynamic>{'user': 'A'});
+    await settle();
+
+    expect(sockets[1].sentJson, isEmpty);
+  });
+
+  test(
+      'disconnect(forget: true) discards onReconnected callbacks registered '
+      'by the previous session', () async {
+    final sockets = <FakeSocket>[FakeSocket(), FakeSocket()];
+    var index = 0;
+    final reverb = Reverb(
+      host: 'localhost',
+      port: 8080,
+      appKey: 'key',
+      useTls: false,
+      socketFactory: (Uri _) => sockets[index++].channel,
+    );
+
+    final connected = reverb.connect();
+    sockets[0].emitJson(handshakeFrame());
+    await connected;
+
+    var fired = 0;
+    reverb.onReconnected(() => fired++);
+
+    await reverb.disconnect(forget: true);
+    await settle();
+
+    // The next user logs in. Their first connect must not run the previous
+    // user's onReconnected closures — those may refetch data scoped to the
+    // old session (e.g. `api.refetchOrdersFor(userA)`), and there is no API
+    // to unregister them, so the client itself must drop them on forget.
+    final again = reverb.connect();
+    sockets[1].emitJson(handshakeFrame(socketId: 'second'));
+    await again;
+    await settle();
+
+    expect(fired, 0);
   });
 
   test('plain disconnect still restores channels on reconnect', () async {
