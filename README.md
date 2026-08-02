@@ -95,8 +95,9 @@ await reverb.connect();
   silently kill. Set it to `false` if your app manages the socket itself.
 - Call `reverb.dispose()` from your app's teardown (e.g. alongside other
   singletons at shutdown). It disconnects, stops observing app lifecycle
-  events, closes the `states` stream and closes the `http.Client` it created
-  for `authEndpoint` (if any) — skipping it leaks the socket, the lifecycle
+  events, closes the `states` and `channelHealth` streams, and closes the
+  `http.Client` it created for `authEndpoint` (if any) — skipping it leaks
+  the socket, the lifecycle
   observer and that client's connection pool. A client you passed in
   yourself via a custom `authorizer` is never touched — that one is yours.
 - `reverb.disconnect()` closes the socket and stops reconnecting, keeping
@@ -257,7 +258,8 @@ final reverb = Reverb(
 );
 ```
 
-Death detection is always on, in every configuration:
+Once the handshake lands, death detection is always on, in every
+configuration:
 
 - **Neither set (the default):** the legacy idle-ping, backed by a pong
   deadline.
@@ -271,6 +273,11 @@ Death detection is always on, in every configuration:
 `watchdogTimeout` must be longer than `pingInterval`, or the constructor
 throws `ArgumentError` — a shorter watchdog would fire between pings and the
 client would reconnect forever.
+
+None of these cover the window *before* the handshake: a socket whose upgrade
+succeeds but which never sends `pusher:connection_established` is not yet
+watched, and `connect()` waits on it. Set a connect timeout at your HTTP or
+platform layer if that matters to you.
 
 ## Channel health
 

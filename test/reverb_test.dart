@@ -812,12 +812,24 @@ void main() {
     await connected;
 
     reverb.channel('orders').listen('OrderCreated', (_) {});
+    // A presence channel too: its roster holds the previous session's user
+    // ids and user_info, so it must not survive a logout on a handle the app
+    // still has a reference to.
+    final room = reverb.presence('room.5')..members(roster: (_) {});
     await settle();
+    sockets[0].emitJson(<String, dynamic>{
+      'event': 'pusher_internal:subscription_succeeded',
+      'channel': 'presence-room.5',
+      'data': '{"presence":{"ids":["1"],"hash":{"1":{"name":"Ann"}}}}',
+    });
+    await settle();
+    expect(room.currentMembers, isNotEmpty);
 
     await reverb.disconnect(forget: true);
     await settle();
 
     expect(reverb.isSubscribed('orders'), isFalse);
+    expect(room.currentMembers, isEmpty);
 
     // Reconnecting the original client must not resubscribe the old channel.
     final again = reverb.connect();
