@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_reverb/src/auth.dart';
 import 'package:flutter_reverb/src/reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -229,5 +231,84 @@ void main() {
 
     expect(
         states, <ReverbState>[ReverbState.connecting, ReverbState.connected]);
+  });
+
+  test(
+      'cancelling while the authorizer is pending never sends a stale '
+      'subscribe', () async {
+    final socket = FakeSocket();
+    final authCompleter = Completer<ReverbAuth>();
+    final reverb = reverbFor(
+      socket,
+      authorizer: (String channel, String socketId) => authCompleter.future,
+    );
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    final sub = reverb.private('users.1').listen('OrderCreated', (_) {});
+    await settle();
+    sub.cancel();
+    await settle();
+
+    // The authorizer resolves only after the channel has already been
+    // unregistered by the cancel above.
+    authCompleter.complete(const ReverbAuth(auth: 'key:sig'));
+    await settle();
+
+    final events =
+        socket.sentJson.map((Map<String, dynamic> f) => f['event']).toList();
+    expect(events, contains('pusher:unsubscribe'));
+    expect(events, isNot(contains('pusher:subscribe')));
+  });
+
+  test('disconnect closes the socket and sets state to disconnected', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    await reverb.disconnect();
+
+    expect(reverb.state, ReverbState.disconnected);
+    expect(socket.closed, isTrue);
+  });
+
+  test('dispose is safe to call and emits no further states', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    final states = <ReverbState>[];
+    reverb.states.listen(states.add);
+
+    reverb.dispose();
+    await settle();
+
+    expect(states, isEmpty);
+    expect(() => reverb.dispose(), returnsNormally);
+  });
+
+  test('a failed connection attempt sets state to failed and reports onError',
+      () async {
+    final socket = FakeSocket();
+    final errors = <Object>[];
+    final reverb = reverbFor(
+      socket,
+      onError: (Object e, StackTrace? _) => errors.add(e),
+    );
+
+    final connected = reverb.connect();
+    await socket.serverClose();
+    await connected;
+
+    expect(reverb.state, ReverbState.failed);
+    expect(errors, isNotEmpty);
   });
 }

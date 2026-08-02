@@ -225,6 +225,15 @@ class Reverb {
       if (_connection?.socketId != socketId) return;
     }
 
+    // The caller may have cancelled its last listener while the authorizer
+    // await above was in flight, which unregisters the channel and sends
+    // pusher:unsubscribe immediately. Without this check, resuming here would
+    // still send pusher:subscribe and orphan a server-side subscription that
+    // nothing in _channels tracks anymore. Identity, not just presence by
+    // name, so a channel re-registered under the same name in the meantime
+    // doesn't let this stale subscribe through either.
+    if (!identical(_channels[channel.name], channel)) return;
+
     connection.send(<String, dynamic>{
       'event': 'pusher:subscribe',
       'data': payload,
