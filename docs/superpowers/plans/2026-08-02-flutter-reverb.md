@@ -1,8 +1,8 @@
-# flutter_reverb Implementation Plan
+# laravel_reverb Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build `flutter_reverb`, a pure-Dart Laravel Reverb client for Flutter with a Laravel Echo-style API, auto-reconnect, presence channels, and client events.
+**Goal:** Build `laravel_reverb`, a pure-Dart Laravel Reverb client for Flutter with a Laravel Echo-style API, auto-reconnect, presence channels, and client events.
 
 **Architecture:** A `Connection` speaks the Pusher wire protocol over an injectable `StreamChannel`; a `Reverb` facade owns the channel registry, authorization, and the reconnect policy; `Channel` objects own their listeners and ref-count themselves so a channel unsubscribes only when its last listener is gone. All pure wire-format logic lives in `protocol.dart` and is tested without any socket.
 
@@ -10,9 +10,9 @@
 
 ## Global Constraints
 
-- Package name `flutter_reverb`, version `0.1.0`, MIT licence, published publicly to pub.dev under the verified publisher **gaitco.com**.
+- Package name `laravel_reverb`, version `0.1.0`, MIT licence, published publicly to pub.dev under the verified publisher **gaitco.com**.
 - LICENSE copyright holder is `Ghanem Artificial Intelligence Technology (GAIT)`, not an individual.
-- `repository` and `issue_tracker` point at the GAIT GitHub org: `https://github.com/gaitco/flutter_reverb`.
+- `repository` and `issue_tracker` point at the GAIT GitHub org: `https://github.com/gaitco/laravel_reverb`.
 - Dependencies are exactly: `flutter`, `http`, `stream_channel`, `web_socket_channel`. Do not add others.
 - Dev dependencies are exactly: `flutter_test`, `flutter_lints`, `fake_async`.
 - Dart SDK `^3.5.0`, Flutter `>=3.24.0`.
@@ -53,10 +53,10 @@ Creates the package and the pure wire-format functions everything else builds on
 `pubspec.yaml`:
 
 ```yaml
-name: flutter_reverb
+name: laravel_reverb
 description: Laravel Reverb realtime client for Flutter. Echo-style API, pure Dart Pusher protocol, auto-reconnect, presence channels and client events.
 version: 0.1.0
-repository: https://github.com/abdullahghanem/flutter_reverb
+repository: https://github.com/abdullahghanem/laravel_reverb
 
 environment:
   sdk: ^3.5.0
@@ -110,7 +110,7 @@ pubspec.lock
 ```dart
 import 'dart:math' as math;
 
-import 'package:flutter_reverb/src/protocol.dart';
+import 'package:laravel_reverb/src/protocol.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -263,7 +263,7 @@ class _ZeroRandom implements math.Random {
 - [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `flutter pub get && flutter test test/protocol_test.dart`
-Expected: FAIL — `Target of URI doesn't exist: 'package:flutter_reverb/src/protocol.dart'`
+Expected: FAIL — `Target of URI doesn't exist: 'package:laravel_reverb/src/protocol.dart'`
 
 - [ ] **Step 4: Write the implementation**
 
@@ -420,7 +420,7 @@ git commit -m "feat: package scaffold and Pusher protocol primitives"
 ```dart
 import 'dart:convert';
 
-import 'package:flutter_reverb/src/connection.dart';
+import 'package:laravel_reverb/src/connection.dart';
 import 'package:stream_channel/stream_channel.dart';
 
 /// A controllable stand-in for a WebSocket, used to drive [Connection] in tests.
@@ -487,7 +487,7 @@ Map<String, dynamic> handshakeFrame({
 import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
-import 'package:flutter_reverb/src/connection.dart';
+import 'package:laravel_reverb/src/connection.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_socket.dart';
@@ -656,7 +656,7 @@ void main() {
 - [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `flutter test test/connection_test.dart`
-Expected: FAIL — `Target of URI doesn't exist: 'package:flutter_reverb/src/connection.dart'`
+Expected: FAIL — `Target of URI doesn't exist: 'package:laravel_reverb/src/connection.dart'`
 
 - [ ] **Step 4: Write the implementation**
 
@@ -923,7 +923,7 @@ git commit -m "feat: socket connection with handshake and keepalive"
 ```dart
 import 'dart:convert';
 
-import 'package:flutter_reverb/src/auth.dart';
+import 'package:laravel_reverb/src/auth.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -1037,7 +1037,7 @@ void main() {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `flutter test test/auth_test.dart`
-Expected: FAIL — `Target of URI doesn't exist: 'package:flutter_reverb/src/auth.dart'`
+Expected: FAIL — `Target of URI doesn't exist: 'package:laravel_reverb/src/auth.dart'`
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1179,7 +1179,7 @@ The core of the package. A channel counts its handlers; when the count reaches z
 `test/channel_test.dart`:
 
 ```dart
-import 'package:flutter_reverb/src/channel.dart';
+import 'package:laravel_reverb/src/channel.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class Harness {
@@ -1381,7 +1381,7 @@ void main() {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `flutter test test/channel_test.dart`
-Expected: FAIL — `Target of URI doesn't exist: 'package:flutter_reverb/src/channel.dart'`
+Expected: FAIL — `Target of URI doesn't exist: 'package:laravel_reverb/src/channel.dart'`
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1642,8 +1642,8 @@ Wires `Connection`, `Channel` and the authorizer together. Reconnect is delibera
 `test/reverb_test.dart`:
 
 ```dart
-import 'package:flutter_reverb/src/auth.dart';
-import 'package:flutter_reverb/src/reverb.dart';
+import 'package:laravel_reverb/src/auth.dart';
+import 'package:laravel_reverb/src/reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_socket.dart';
@@ -1876,7 +1876,7 @@ void main() {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `flutter test test/reverb_test.dart`
-Expected: FAIL — `Target of URI doesn't exist: 'package:flutter_reverb/src/reverb.dart'`
+Expected: FAIL — `Target of URI doesn't exist: 'package:laravel_reverb/src/reverb.dart'`
 
 - [ ] **Step 3: Write the implementation**
 
@@ -2072,7 +2072,7 @@ class Reverb {
   void _requireAuthorizer(String kind) {
     if (_authorizer != null) return;
     throw StateError(
-      'flutter_reverb: $kind channels need authorization. Pass either '
+      'laravel_reverb: $kind channels need authorization. Pass either '
       'authEndpoint or authorizer to the Reverb constructor.',
     );
   }
@@ -2173,9 +2173,9 @@ The correctness-critical task. The auth signature is bound to the socket id, so 
 
 ```dart
 import 'package:fake_async/fake_async.dart';
-import 'package:flutter_reverb/src/auth.dart';
-import 'package:flutter_reverb/src/connection.dart';
-import 'package:flutter_reverb/src/reverb.dart';
+import 'package:laravel_reverb/src/auth.dart';
+import 'package:laravel_reverb/src/connection.dart';
+import 'package:laravel_reverb/src/reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_socket.dart';
@@ -2524,7 +2524,7 @@ git commit -m "feat: reconnect with backoff and full re-authorization"
 
 ```dart
 import 'package:flutter/widgets.dart';
-import 'package:flutter_reverb/src/reverb.dart';
+import 'package:laravel_reverb/src/reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_socket.dart';
@@ -2700,7 +2700,7 @@ git commit -m "feat: disconnect on background and reconnect on foreground"
 ### Task 8: Public surface, example app and publish readiness
 
 **Files:**
-- Create: `lib/flutter_reverb.dart`
+- Create: `lib/laravel_reverb.dart`
 - Create: `README.md`
 - Create: `example/pubspec.yaml`
 - Create: `example/lib/main.dart`
@@ -2710,14 +2710,14 @@ git commit -m "feat: disconnect on background and reconnect on foreground"
 
 **Interfaces:**
 - Consumes: every public type from Tasks 1–7.
-- Produces: `package:flutter_reverb/flutter_reverb.dart` exporting `Reverb`, `ReverbState`, `Channel`, `PrivateChannel`, `PresenceChannel`, `PresenceMember`, `Subscription`, `ReverbEventCallback`, `ReverbAuth`, `Authorizer`, `ReverbAuthException`, `ReverbFatalError`, `ReverbFrame`.
+- Produces: `package:laravel_reverb/laravel_reverb.dart` exporting `Reverb`, `ReverbState`, `Channel`, `PrivateChannel`, `PresenceChannel`, `PresenceMember`, `Subscription`, `ReverbEventCallback`, `ReverbAuth`, `Authorizer`, `ReverbAuthException`, `ReverbFatalError`, `ReverbFrame`.
 
 - [ ] **Step 1: Write the failing test**
 
 `test/exports_test.dart`:
 
 ```dart
-import 'package:flutter_reverb/flutter_reverb.dart';
+import 'package:laravel_reverb/laravel_reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -2739,18 +2739,18 @@ void main() {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `flutter test test/exports_test.dart`
-Expected: FAIL — `Target of URI doesn't exist: 'package:flutter_reverb/flutter_reverb.dart'`
+Expected: FAIL — `Target of URI doesn't exist: 'package:laravel_reverb/laravel_reverb.dart'`
 
 - [ ] **Step 3: Write the entry point**
 
-`lib/flutter_reverb.dart`:
+`lib/laravel_reverb.dart`:
 
 ```dart
 /// A Laravel Reverb realtime client for Flutter.
 ///
 /// Speaks the Pusher protocol in pure Dart, with a Laravel Echo-style API,
 /// automatic reconnection, presence channels and client events.
-library flutter_reverb;
+library laravel_reverb;
 
 export 'src/auth.dart'
     show Authorizer, ReverbAuth, ReverbAuthException, httpAuthorizer;
@@ -2772,8 +2772,8 @@ export 'src/reverb.dart' show Reverb, ReverbState;
 `example/pubspec.yaml`:
 
 ```yaml
-name: flutter_reverb_example
-description: Minimal flutter_reverb example.
+name: laravel_reverb_example
+description: Minimal laravel_reverb example.
 version: 1.0.0
 publish_to: none
 
@@ -2783,7 +2783,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_reverb:
+  laravel_reverb:
     path: ../
 
 dev_dependencies:
@@ -2795,7 +2795,7 @@ dev_dependencies:
 
 ```dart
 import 'package:flutter/material.dart';
-import 'package:flutter_reverb/flutter_reverb.dart';
+import 'package:laravel_reverb/laravel_reverb.dart';
 
 /// Runs the example app.
 void main() => runApp(const ExampleApp());
@@ -2848,7 +2848,7 @@ class _ExampleAppState extends State<ExampleApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(title: Text('flutter_reverb — ${_state.name}')),
+        appBar: AppBar(title: Text('laravel_reverb — ${_state.name}')),
         body: ListView.builder(
           itemCount: _events.length,
           itemBuilder: (BuildContext context, int index) =>
@@ -2865,7 +2865,7 @@ class _ExampleAppState extends State<ExampleApp> {
 `README.md` must contain, in this order:
 
 1. A one-paragraph description and the pub.dev badge placeholder.
-2. Install: the `flutter pub add flutter_reverb` line.
+2. Install: the `flutter pub add laravel_reverb` line.
 3. Laravel setup: a note that this targets a self-hosted Reverb server and needs `BROADCAST_CONNECTION=reverb`, plus the `REVERB_APP_KEY`, `REVERB_HOST`, `REVERB_PORT` values mapping onto the constructor arguments.
 4. Quick start — the exact code below:
 
@@ -2924,8 +2924,8 @@ In `pubspec.yaml`, replace the `repository` line with these three fields:
 
 ```yaml
 homepage: https://gaitco.com
-repository: https://github.com/gaitco/flutter_reverb
-issue_tracker: https://github.com/gaitco/flutter_reverb/issues
+repository: https://github.com/gaitco/laravel_reverb
+issue_tracker: https://github.com/gaitco/laravel_reverb/issues
 ```
 
 In `LICENSE`, change the copyright line to:

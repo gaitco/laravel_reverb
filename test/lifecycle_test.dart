@@ -1,5 +1,5 @@
 import 'package:flutter/widgets.dart';
-import 'package:flutter_reverb/src/reverb.dart';
+import 'package:laravel_reverb/src/reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_socket.dart';

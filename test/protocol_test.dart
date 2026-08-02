@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter_reverb/src/protocol.dart';
+import 'package:laravel_reverb/src/protocol.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -1,6 +1,6 @@
-# flutter_reverb
+# laravel_reverb
 
-[![pub package](https://img.shields.io/pub/v/flutter_reverb.svg)](https://pub.dev/packages/flutter_reverb)
+[![pub package](https://img.shields.io/pub/v/laravel_reverb.svg)](https://pub.dev/packages/laravel_reverb)
 
 A Laravel Reverb realtime client for Flutter. It speaks the Pusher wire
 protocol in pure Dart — no native plugins — with a Laravel Echo-style API:
@@ -10,7 +10,7 @@ presence channels, and client events (whispers).
 ## Install
 
 ```bash
-flutter pub add flutter_reverb
+flutter pub add laravel_reverb
 ```
 
 ## Laravel setup
@@ -137,7 +137,7 @@ event `App\Events\OrderCreated`. A leading dot means a literal
 
 ## Reconnection
 
-When the socket drops, `flutter_reverb` retries with exponential backoff —
+When the socket drops, `laravel_reverb` retries with exponential backoff —
 1s, 2s, 4s, 8s, 16s, capped at 30s, with jitter so that clients dropped by the
 same outage don't all reconnect in lockstep. On reconnect, every private and
 presence channel is re-authorized against the new socket id, because a Pusher
@@ -188,7 +188,7 @@ final reverb = Reverb(
 
 ## Migrating from pusher_channels_flutter
 
-| pusher_channels_flutter | flutter_reverb |
+| pusher_channels_flutter | laravel_reverb |
 |---|---|
 | `init(...)` + `connect()` | `Reverb(...)` constructor + `connect()` |
 | `subscribe(channelName: 'private-users.1')` | `private('users.1')` — the prefix is added for you |

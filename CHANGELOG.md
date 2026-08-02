@@ -13,4 +13,4 @@ Initial release.
   its last listener is cancelled.
 - App lifecycle handling: disconnects on background, reconnects on
   foreground, via `handleAppLifecycle`.
-- Public entry point (`package:flutter_reverb/flutter_reverb.dart`), example app and CI.
+- Public entry point (`package:laravel_reverb/laravel_reverb.dart`), example app and CI.

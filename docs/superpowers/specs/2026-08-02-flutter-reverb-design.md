@@ -1,8 +1,8 @@
-# flutter_reverb — Design
+# laravel_reverb — Design
 
 **Date:** 2026-08-02
 **Status:** Approved
-**Package:** `flutter_reverb` (public, pub.dev, MIT)
+**Package:** `laravel_reverb` (public, pub.dev, MIT)
 
 ## Problem
 
@@ -23,7 +23,7 @@ same workarounds:
 - **Reconnect leaves a correctness gap.** Reverb does not replay events missed while
   disconnected, so apps need a reliable "we are fully back" signal to reconcile via REST.
 
-`flutter_reverb` closes all five in the package instead of in every app.
+`laravel_reverb` closes all five in the package instead of in every app.
 
 ## Decisions
 
@@ -42,7 +42,7 @@ channels, client events (whisper).
 Five files. No interfaces with a single implementation.
 
 ```
-lib/flutter_reverb.dart      # public exports only
+lib/laravel_reverb.dart      # public exports only
 lib/src/protocol.dart        # pure functions: frame parsing, data decode, URL, backoff
 lib/src/connection.dart      # socket lifecycle, handshake, ping/pong
 lib/src/channel.dart         # Channel / PrivateChannel / PresenceChannel + Subscription

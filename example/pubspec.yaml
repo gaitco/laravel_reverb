@@ -1,5 +1,5 @@
-name: flutter_reverb_example
-description: Minimal flutter_reverb example.
+name: laravel_reverb_example
+description: Minimal laravel_reverb example.
 version: 1.0.0
 publish_to: none
 
@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_reverb:
+  laravel_reverb:
     path: ../
 
 dev_dependencies:

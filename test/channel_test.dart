@@ -1,4 +1,4 @@
-import 'package:flutter_reverb/src/channel.dart';
+import 'package:laravel_reverb/src/channel.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class Harness {

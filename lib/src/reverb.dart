@@ -397,7 +397,7 @@ class Reverb with WidgetsBindingObserver {
   void _requireAuthorizer(String kind) {
     if (_authorizer != null) return;
     throw StateError(
-      'flutter_reverb: $kind channels need authorization. Pass either '
+      'laravel_reverb: $kind channels need authorization. Pass either '
       'authEndpoint or authorizer to the Reverb constructor.',
     );
   }

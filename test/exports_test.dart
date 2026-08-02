@@ -1,4 +1,4 @@
-import 'package:flutter_reverb/flutter_reverb.dart';
+import 'package:laravel_reverb/laravel_reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

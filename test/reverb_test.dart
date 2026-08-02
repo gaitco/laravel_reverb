@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter_reverb/src/auth.dart';
-import 'package:flutter_reverb/src/channel.dart';
-import 'package:flutter_reverb/src/connection.dart';
-import 'package:flutter_reverb/src/reverb.dart';
+import 'package:laravel_reverb/src/auth.dart';
+import 'package:laravel_reverb/src/channel.dart';
+import 'package:laravel_reverb/src/connection.dart';
+import 'package:laravel_reverb/src/reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_socket.dart';

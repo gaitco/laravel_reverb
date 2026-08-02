@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_reverb/flutter_reverb.dart';
+import 'package:laravel_reverb/laravel_reverb.dart';
 
 /// Runs the example app.
 void main() => runApp(const ExampleApp());
@@ -52,7 +52,7 @@ class _ExampleAppState extends State<ExampleApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(title: Text('flutter_reverb — ${_state.name}')),
+        appBar: AppBar(title: Text('laravel_reverb — ${_state.name}')),
         body: ListView.builder(
           itemCount: _events.length,
           itemBuilder: (BuildContext context, int index) =>

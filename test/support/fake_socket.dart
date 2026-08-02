@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter_reverb/src/connection.dart';
+import 'package:laravel_reverb/src/connection.dart';
 import 'package:stream_channel/stream_channel.dart';
 
 /// A controllable stand-in for a WebSocket, used to drive [Connection] in tests.

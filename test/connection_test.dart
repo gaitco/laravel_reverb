@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:fake_async/fake_async.dart';
-import 'package:flutter_reverb/src/connection.dart';
+import 'package:laravel_reverb/src/connection.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_socket.dart';
