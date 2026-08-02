@@ -95,8 +95,10 @@ await reverb.connect();
   silently kill. Set it to `false` if your app manages the socket itself.
 - Call `reverb.dispose()` from your app's teardown (e.g. alongside other
   singletons at shutdown). It disconnects, stops observing app lifecycle
-  events and closes the `states` stream — skipping it leaks the socket and
-  the lifecycle observer.
+  events, closes the `states` stream and closes the `http.Client` it created
+  for `authEndpoint` (if any) — skipping it leaks the socket, the lifecycle
+  observer and that client's connection pool. A client you passed in
+  yourself via a custom `authorizer` is never touched — that one is yours.
 
 ## Recipes
 
@@ -138,9 +140,13 @@ class _OrderScreenState extends State<OrderScreen> {
 A channel unsubscribes once its last listener is cancelled, but the handle
 itself is never left dead: calling `listen` on it again resends
 `pusher:subscribe` (re-authorizing private and presence channels against the
-current socket id) and puts it straight back to work. Asking `reverb` for the
-channel again (`reverb.private('users.1')`, etc.) still works too — it just
-isn't required.
+current socket id) and puts it straight back to work — as long as nothing
+else has since claimed the same name. Stick to one pattern per channel name:
+either keep reusing the handle you already have, or always ask `reverb` for
+a fresh one (`reverb.private('users.1')`, etc.). Mixing the two for the same
+name — holding an old, emptied handle while also asking for a new one — means
+only the first to claim the name is live; the other quietly does nothing
+until it can claim the name too.
 
 ### Presence channel
 
@@ -197,10 +203,14 @@ failure is reported through `onError` and `laravel_reverb` retries it with
 the same exponential backoff used for reconnects, up to three attempts in
 total. Every failure — including the last — is reported through `onError`,
 so a transient 500 or a token that is momentarily expired is never silent.
-Once the last attempt fails, the channel is left unsubscribed for the rest of
-the session; re-listening on the same handle (or requesting it again) forces
-a fresh authorization attempt, exactly as if it were being subscribed for
-the first time:
+
+Once the last attempt fails, the channel is left registered but subscribed to
+nothing — re-listening on the same handle, or requesting it again, does
+**not** retry on its own, since from the registry's point of view the channel
+is still there and already has its listener. Cancel every listener on it
+first, so it actually unsubscribes and is dropped from the registry, and
+*then* listen again (or request it again) to force a fresh authorization
+attempt:
 
 ```dart
 subscription.cancel();

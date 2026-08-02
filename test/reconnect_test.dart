@@ -586,24 +586,34 @@ void main() {
       async.flushMicrotasks();
       expect(authCalls, 1); // the initial attempt failed; a retry is pending.
 
-      // The socket drops before the pending retry's backoff elapses.
-      // _onDropped clears _connection immediately on the drop, so the
-      // retry's socket-id guard sees this even before the reconnect itself
-      // finishes.
-      sockets[0].serverClose();
+      // Disconnect and reconnect on a fresh socket immediately — no
+      // serverClose(), no elapsed backoff — so by the time the stale retry's
+      // own backoff timer (scheduled against 'first', below) finally fires,
+      // 'second' is already fully connected with a different, non-null
+      // socket id. That is deliberate: it means _subscribe's entry-level
+      // "no live socket yet" check (connection/socketId == null) cannot be
+      // what saves this test, unlike a plain server-side drop where the
+      // replacement socket's handshake is often still pending. Only the
+      // explicit `_connection?.socketId != socketId` check inside the
+      // retry's continuation can catch it here.
+      unawaited(reverb.disconnect());
       async.flushMicrotasks();
-
-      // Let the retry's own backoff (scheduled against the now-dead 'first'
-      // socket) fully elapse before the reconnect completes.
-      async.elapse(const Duration(seconds: 2));
-      expect(authCalls, 1); // the stale retry aborted: no extra auth call.
-
+      reverb.connect();
+      async.flushMicrotasks();
       sockets[1].emitJson(handshakeFrame(socketId: 'second'));
       async.flushMicrotasks();
 
-      // The ordinary reconnect path authorizes fresh against the new id.
-      expect(authCalls, 2);
+      final callsAfterReconnect = authCalls;
+      expect(callsAfterReconnect, 2); // the fresh reconnect authorized once.
       expect(reverb.state, ReverbState.connected);
+
+      // Now let the stale retry's backoff (scheduled ~1-1.25s ago, against
+      // 'first') fully elapse. With the guard, it recognizes 'second' as a
+      // different socket and aborts; without it, it would recurse into a
+      // fresh _subscribe against the now-current 'second' connection and
+      // authorize (and subscribe) a third, redundant time.
+      async.elapse(const Duration(seconds: 2));
+      expect(authCalls, callsAfterReconnect); // no extra call from the retry.
     });
   });
 

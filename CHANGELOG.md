@@ -6,14 +6,16 @@ Behavioural fixes and API polish from the 0.1.0 review backlog.
   whose last listener was cancelled used to silently receive nothing
   forever; it now resends `pusher:subscribe` (re-authorizing private and
   presence channels against the current socket id) and goes straight back to
-  work. Getting a fresh handle from `channel()`/`private()`/`presence()`
-  still works too, but is no longer necessary.
+  work — as long as nothing else has since claimed the same name. Stick to
+  one pattern per channel name: keep reusing a handle, or always ask
+  `channel()`/`private()`/`presence()` for a fresh one, rather than mixing
+  the two — only the first handle to claim a name is ever live.
 - **A failing authorizer now retries.** If `Authorizer` throws while
   subscribing a private or presence channel, `laravel_reverb` retries with
   the same exponential backoff used for reconnects, up to three attempts,
   reporting every failure — including the last — through `onError`. A
   transient 500 or a token that is about to expire no longer disables a
-  channel for the rest of the session.
+  channel until the next reconnect or a fresh listen.
 - **A common `ReverbException` base for every error type.** `ReverbFatalError`,
   `ReverbConnectionClosed`, `ReverbAuthException`, `ReverbProtocolError` and
   `ReverbSubscriptionError` all now extend the sealed `ReverbException`, so
@@ -23,6 +25,13 @@ Behavioural fixes and API polish from the 0.1.0 review backlog.
   created implicitly for `authEndpoint` is now owned by `Reverb` and closed
   when you call `dispose()`. A client you pass in yourself (via a custom
   `authorizer`) is never touched — that one is still yours to close.
+- **Potentially breaking, for uncommon usage.** The five error types are now
+  `final` classes, so code that did `implements ReverbAuthException` (etc.),
+  as a test fake might, no longer compiles — `extends` still works.
+  `Channel`'s (exported) constructor also gained a required `onFirst`
+  parameter, so any code constructing a `Channel` directly rather than
+  through `Reverb.channel()`/`private()`/`presence()` needs to supply one.
+  Neither is expected to affect normal usage.
 - Fixed a stale doc comment on `Connection.frames`: it also carries non-fatal
   `pusher:error` and `pusher:subscription_error` frames, which `Reverb`
   filters out before anything reaches a channel.

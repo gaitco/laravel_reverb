@@ -97,7 +97,8 @@ class Reverb with WidgetsBindingObserver {
 
   /// The maximum number of subscribe attempts for a private or presence
   /// channel, including the first, before a failing [Authorizer] is left
-  /// alone for the rest of the session.
+  /// unsubscribed rather than retried immediately again. Not a permanent
+  /// giving-up: see [_subscribe]'s doc comment for what restarts it.
   static const int _maxAuthAttempts = 3;
 
   /// Reports runtime failures that the package handled without throwing.
@@ -130,6 +131,20 @@ class Reverb with WidgetsBindingObserver {
   late final http.Client? _ownedHttpClient;
 
   final Map<String, Channel> _channels = <String, Channel>{};
+
+  /// Bumped per channel name every time [_unsubscribe] actually evicts that
+  /// name's occupant.
+  ///
+  /// Needed because a revived handle is the *same object* the registry held
+  /// before: `identical(_channels[channel.name], channel)` is true again the
+  /// moment [_resubscribe] puts it back, so identity alone cannot tell a
+  /// subscribe attempt from before the eviction apart from one started
+  /// after it. [_subscribe] captures the generation for [channel.name] at
+  /// entry and re-checks it before ever sending, so a stale attempt left
+  /// over from before an unsubscribe+resubscribe cycle is recognized as
+  /// stale even though it is, by identity, the channel currently registered.
+  final Map<String, int> _generations = <String, int>{};
+
   final StreamController<ReverbState> _states =
       StreamController<ReverbState>.broadcast();
   final List<void Function()> _reconnectedCallbacks = <void Function()>[];
@@ -313,9 +328,13 @@ class Reverb with WidgetsBindingObserver {
   /// [_unsubscribe] drops the channel from the registry and sends
   /// `pusher:unsubscribe`, but calling `listen` on the same handle again
   /// puts it straight back — [_resubscribe] re-registers it and resends
-  /// `pusher:subscribe` before any event can reach it. Calling [channel]
-  /// again also works and returns a new handle, since the old one is never
-  /// left dead.
+  /// `pusher:subscribe` — *provided nothing else has since claimed [name]*.
+  /// Only one handle can be live under a given name at a time: if you called
+  /// [channel] again in the meantime and it is still in use, this handle's
+  /// revival is refused rather than evicting the one that's live, and this
+  /// handle stays inert until that occupant is itself dropped. Stick to one
+  /// pattern per name — keep reusing a single handle, or always ask
+  /// [channel] for a fresh one — rather than mixing the two.
   Channel channel(String name) => _register(
         name,
         () => Channel(
@@ -333,9 +352,9 @@ class Reverb with WidgetsBindingObserver {
   /// also re-authorizes: a resurrected private or presence channel calls
   /// [Authorizer] again against the current socket id, exactly as a fresh
   /// [private] call would. If the authorizer fails, [_subscribe] retries it
-  /// a bounded number of times with backoff before giving up for the
-  /// session; every failure, including the last, is reported through
-  /// [onError].
+  /// a bounded number of times with backoff before leaving the channel
+  /// unsubscribed until the next reconnect or a fresh listen; every
+  /// failure, including the last, is reported through [onError].
   PrivateChannel private(String name) {
     _requireAuthorizer('private');
     return _register(
@@ -436,16 +455,18 @@ class Reverb with WidgetsBindingObserver {
   ///
   /// [Channel] cannot tell a fresh handle from one whose last listener was
   /// already cancelled — both go from zero listeners to one, so [Channel]
-  /// calls this either way. If [channel] is already the object registered
-  /// under its name — the ordinary case, since [_register] puts a brand new
-  /// channel there before the caller's first `listen` ever runs — there is
-  /// nothing to do. Otherwise it was dropped by [_unsubscribe] (or never
-  /// registered at all), so put it back *before* subscribing: [_subscribe]'s
-  /// own identity check only lets a subscribe through for a channel that is
-  /// already in the registry, and this is what makes a resurrected channel
-  /// pass that check legitimately rather than being treated as stale.
+  /// calls this either way. If [channel]'s name is already occupied — by
+  /// [channel] itself (the ordinary case, since [_register] puts a brand new
+  /// channel there before the caller's first `listen` ever runs) or by some
+  /// *other* channel object (a second handle for the same name that is still
+  /// live) — there is nothing to do: claiming an occupied name would either
+  /// be a no-op or, worse, evict a live channel out from under its own
+  /// listeners. Only an unoccupied name — dropped by [_unsubscribe], or never
+  /// registered at all — gets [channel] put back, and always *before*
+  /// calling [_subscribe], so it is already registered by the time
+  /// [_subscribe]'s own checks run.
   void _resubscribe(Channel channel) {
-    if (identical(_channels[channel.name], channel)) return;
+    if (_channels[channel.name] != null) return;
     _channels[channel.name] = channel;
     unawaited(_subscribe(channel));
   }
@@ -458,12 +479,23 @@ class Reverb with WidgetsBindingObserver {
   ///
   /// If the authorizer throws, this retries with backoff up to
   /// [_maxAuthAttempts] times (counting [attempt], which starts at 0) before
-  /// giving up on this channel for the rest of the session. Every failure,
+  /// leaving this channel unsubscribed. That is not permanent: the next
+  /// reconnect calls [_subscribeAll], which restarts every channel at
+  /// attempt 0, and cancelling every listener (which unsubscribes it) then
+  /// listening again forces the same restart immediately. Every failure,
   /// including the last, is reported through [onError] so nothing is silent.
   Future<void> _subscribe(Channel channel, [int attempt = 0]) async {
     final connection = _connection;
     final socketId = connection?.socketId;
     if (connection == null || socketId == null) return;
+
+    // Captured once, at entry: see _generations' doc comment for why
+    // identity alone can't tell a stale attempt apart from a fresh one once
+    // a channel has been unsubscribed and revived as the same object.
+    final generation = _generations[channel.name] ?? 0;
+    bool current() =>
+        identical(_channels[channel.name], channel) &&
+        (_generations[channel.name] ?? 0) == generation;
 
     final payload = <String, dynamic>{'channel': channel.name};
 
@@ -487,10 +519,10 @@ class Reverb with WidgetsBindingObserver {
         // subscribe bound to a socket id nobody accepts anymore.
         if (_connection?.socketId != socketId) return;
         // The caller may likewise have cancelled the channel's last listener
-        // while this was backing off, unregistering it. Identity, not just
-        // presence by name, so a same-named replacement channel registered
-        // in the meantime doesn't inherit this retry either.
-        if (!identical(_channels[channel.name], channel)) return;
+        // and relisted on the same handle while this was backing off. That
+        // is still `current()` by identity (the same object is back in the
+        // registry) but not by generation, so this still catches it.
+        if (!current()) return;
 
         unawaited(_subscribe(channel, attempt + 1));
         return;
@@ -506,10 +538,11 @@ class Reverb with WidgetsBindingObserver {
     // await above was in flight, which unregisters the channel and sends
     // pusher:unsubscribe immediately. Without this check, resuming here would
     // still send pusher:subscribe and orphan a server-side subscription that
-    // nothing in _channels tracks anymore. Identity, not just presence by
-    // name, so a channel re-registered under the same name in the meantime
-    // doesn't let this stale subscribe through either.
-    if (!identical(_channels[channel.name], channel)) return;
+    // nothing in _channels tracks anymore. Checking current() rather than
+    // just identity also catches the same-object-revived case: a fresh
+    // listen() on the same handle in the gap has already started its own
+    // _subscribe, and this older attempt must not send a second one.
+    if (!current()) return;
 
     connection.send(<String, dynamic>{
       'event': 'pusher:subscribe',
@@ -522,7 +555,13 @@ class Reverb with WidgetsBindingObserver {
   }
 
   void _unsubscribe(Channel channel) {
+    // Only the channel that actually occupies its name may vacate it. A
+    // stale handle whose subscribe never got this far — because a different,
+    // still-live channel already holds this name — must not evict the
+    // occupant it never displaced.
+    if (!identical(_channels[channel.name], channel)) return;
     _channels.remove(channel.name);
+    _generations[channel.name] = (_generations[channel.name] ?? 0) + 1;
     _connection?.send(<String, dynamic>{
       'event': 'pusher:unsubscribe',
       'data': <String, dynamic>{'channel': channel.name},

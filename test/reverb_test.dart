@@ -442,6 +442,112 @@ void main() {
   });
 
   test(
+      'a stale handle cannot hijack the registry slot of a live channel '
+      'under the same name', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    // `a` is the emptied, stale handle; `b` is a fresh, live one for the
+    // same name, obtained the ordinary way after `a` was dropped.
+    final a = reverb.channel('orders');
+    final subA = a.listen('OrderCreated', (_) {});
+    await settle();
+    subA.cancel();
+    await settle();
+
+    final b = reverb.channel('orders');
+    expect(identical(a, b), isFalse);
+    Map<String, dynamic>? receivedByB;
+    final subB = b.listen(
+      'OrderCreated',
+      (Map<String, dynamic> data) => receivedByB = data,
+    );
+    await settle();
+
+    // The stale handle tries to come back to life while `b` is live and has
+    // listeners. It must not evict `b` from the registry.
+    final rejectedRevival = a.listen('OrderCreated', (_) {});
+    await settle();
+
+    socket.emitJson(<String, dynamic>{
+      'event': r'App\Events\OrderCreated',
+      'channel': 'orders',
+      'data': '{"id":1}',
+    });
+    await settle();
+    expect(receivedByB, <String, dynamic>{'id': 1});
+
+    // `a` still has its own (never-registered) listener from the rejected
+    // revival above. Cancelling it must not touch `b`'s live registry entry
+    // either — `_unsubscribe` may only act on the channel that actually
+    // occupies its name.
+    final sentBeforeCancel = socket.sentJson.length;
+    rejectedRevival.cancel();
+    await settle();
+    expect(socket.sentJson.length, sentBeforeCancel); // nothing sent for `a`.
+
+    // Cancelling b's only listener must unsubscribe b (the actual occupant),
+    // not steal `a`'s non-existent slot out from under it.
+    subB.cancel();
+    await settle();
+    expect(socket.sentJson.last, <String, dynamic>{
+      'event': 'pusher:unsubscribe',
+      'data': <String, dynamic>{'channel': 'orders'},
+    });
+  });
+
+  test(
+      'reviving a channel while its original subscribe is still awaiting '
+      'authorization sends only the fresh subscribe, not the stale one',
+      () async {
+    final socket = FakeSocket();
+    final authCompleters = <Completer<ReverbAuth>>[];
+    final reverb = reverbFor(
+      socket,
+      authorizer: (String channel, String socketId) {
+        final completer = Completer<ReverbAuth>();
+        authCompleters.add(completer);
+        return completer.future;
+      },
+    );
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    final channel = reverb.private('users.1');
+    final sub = channel.listen('A', (_) {});
+    await settle();
+    expect(authCompleters, hasLength(1)); // the initial subscribe's auth.
+
+    // Unsubscribes immediately; auth #1 is now stale but still in flight.
+    sub.cancel();
+    await settle();
+
+    // Revives the same object; starts a second, independent subscribe.
+    channel.listen('B', (_) {});
+    await settle();
+    expect(authCompleters, hasLength(2));
+
+    // Resolve the stale one first, then the fresh one — the order a slow
+    // /broadcasting/auth response plus a fast revival produces in practice.
+    authCompleters[0].complete(const ReverbAuth(auth: 'stale'));
+    await settle();
+    authCompleters[1].complete(const ReverbAuth(auth: 'fresh'));
+    await settle();
+
+    final subscribes = socket.sentJson
+        .where((Map<String, dynamic> f) => f['event'] == 'pusher:subscribe')
+        .toList();
+    expect(subscribes, hasLength(1));
+    expect(subscribes.single['data']['auth'], 'fresh');
+  });
+
+  test(
       'presence member events survive Connection and Reverb routing to '
       'reach the channel', () async {
     final socket = FakeSocket();
