@@ -1,0 +1,19 @@
+/// A Laravel Reverb realtime client for Flutter.
+///
+/// Speaks the Pusher protocol in pure Dart, with a Laravel Echo-style API,
+/// automatic reconnection, presence channels and client events.
+library;
+
+export 'src/auth.dart'
+    show Authorizer, ReverbAuth, ReverbAuthException, httpAuthorizer;
+export 'src/channel.dart'
+    show
+        Channel,
+        PresenceChannel,
+        PresenceMember,
+        PrivateChannel,
+        ReverbEventCallback,
+        Subscription;
+export 'src/connection.dart' show ReverbFatalError;
+export 'src/protocol.dart' show ReverbFrame;
+export 'src/reverb.dart' show Reverb, ReverbState;

@@ -1,0 +1,17 @@
+import 'package:flutter_reverb/flutter_reverb.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('the public entry point exposes the documented API', () {
+    // Compiles only if every public type is exported from the entry point.
+    expect(ReverbState.values, contains(ReverbState.connected));
+    expect(const ReverbAuth(auth: 'a').auth, 'a');
+    expect(const PresenceMember(id: '1', info: <String, dynamic>{}).id, '1');
+    expect(const ReverbFatalError(4001, 'x').code, 4001);
+    expect(
+      const ReverbAuthException('private-a', 403, 'no').statusCode,
+      403,
+    );
+    expect(Reverb.clientVersion, isNotEmpty);
+  });
+}
