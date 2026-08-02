@@ -145,8 +145,9 @@ else has since claimed the same name. Stick to one pattern per channel name:
 either keep reusing the handle you already have, or always ask `reverb` for
 a fresh one (`reverb.private('users.1')`, etc.). Mixing the two for the same
 name — holding an old, emptied handle while also asking for a new one — means
-only the first to claim the name is live; the other quietly does nothing
-until it can claim the name too.
+only the one holding the name is live. The other stays inert, and it does not
+wake up on its own when the occupant releases the name: it only reclaims it on
+its own next 0-to-1 listener transition.
 
 ### Presence channel
 

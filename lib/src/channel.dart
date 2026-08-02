@@ -47,10 +47,16 @@ class Subscription {
 /// Ref-counted by listener: once the last [Subscription] returned by
 /// [listen] is cancelled, the owning `Reverb` drops this channel from its
 /// registry and unsubscribes on the wire. Calling [listen] again on the same
-/// handle after that point resends `pusher:subscribe` and puts it back in
-/// the registry — the handle is never permanently dead, so there is no need
-/// to get a fresh one from `Reverb.channel` (or `private`/`presence`)
-/// afterwards, though doing so still works too.
+/// handle resends `pusher:subscribe` and puts it back in the registry, so a
+/// handle you have held onto keeps working.
+///
+/// Exactly one handle is live per channel name. If something else claimed the
+/// name while yours was unregistered — because another part of the app asked
+/// `Reverb` for the same channel — yours does not evict it; it stays inert
+/// and will only reclaim the name on a later 0-to-1 listener transition, once
+/// the occupant has released it. Pick one pattern per channel name: either
+/// hold a handle, or ask `Reverb` for it each time. Mixing both is what
+/// produces two handles for one name.
 class Channel {
   /// Creates a channel. Applications get channels from `Reverb`, not directly.
   Channel({
