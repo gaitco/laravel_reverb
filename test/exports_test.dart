@@ -22,6 +22,10 @@ void main() {
       'private-a',
     );
     expect(Reverb.clientVersion, isNotEmpty);
+    expect(
+      const ChannelHealth(channel: 'orders', healthy: true).healthy,
+      isTrue,
+    );
   });
 
   test('every error type shares the sealed ReverbException base', () {

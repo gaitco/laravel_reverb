@@ -671,4 +671,94 @@ void main() {
       returnsNormally,
     );
   });
+
+  test('reports a channel healthy once the server acknowledges it', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+    final health = <ChannelHealth>[];
+    reverb.channelHealth.listen(health.add);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    reverb.channel('orders').listen('OrderCreated', (_) {});
+    await settle();
+    expect(reverb.isSubscribed('orders'), isFalse);
+
+    socket.emitJson(<String, dynamic>{
+      'event': 'pusher_internal:subscription_succeeded',
+      'channel': 'orders',
+      'data': '{}',
+    });
+    await settle();
+
+    expect(reverb.isSubscribed('orders'), isTrue);
+    expect(health.single.channel, 'orders');
+    expect(health.single.healthy, isTrue);
+  });
+
+  test('reports a channel unhealthy on subscription_error', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+    final health = <ChannelHealth>[];
+    reverb.channelHealth.listen(health.add);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    reverb.channel('orders').listen('OrderCreated', (_) {});
+    await settle();
+    socket.emitJson(<String, dynamic>{
+      'event': 'pusher_internal:subscription_succeeded',
+      'channel': 'orders',
+      'data': '{}',
+    });
+    await settle();
+
+    socket.emitJson(<String, dynamic>{
+      'event': 'pusher:subscription_error',
+      'channel': 'orders',
+      'data': '{"type":"AuthError","status":403}',
+    });
+    await settle();
+
+    expect(reverb.isSubscribed('orders'), isFalse);
+    expect(health.last.healthy, isFalse);
+    expect(reverb.state, ReverbState.connected);
+  });
+
+  test('marks every live channel unhealthy when the socket drops', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+    final health = <ChannelHealth>[];
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    reverb.channel('orders').listen('A', (_) {});
+    reverb.channel('stock').listen('B', (_) {});
+    await settle();
+    for (final String name in <String>['orders', 'stock']) {
+      socket.emitJson(<String, dynamic>{
+        'event': 'pusher_internal:subscription_succeeded',
+        'channel': name,
+        'data': '{}',
+      });
+    }
+    await settle();
+
+    reverb.channelHealth.listen(health.add);
+    await socket.serverClose();
+    await settle();
+
+    expect(
+      health.map((ChannelHealth h) => h.channel).toSet(),
+      <String>{'orders', 'stock'},
+    );
+    expect(health.every((ChannelHealth h) => !h.healthy), isTrue);
+    expect(reverb.isSubscribed('orders'), isFalse);
+  });
 }

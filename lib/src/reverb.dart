@@ -7,8 +7,11 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'auth.dart';
 import 'channel.dart';
+import 'channel_health.dart';
 import 'connection.dart';
 import 'protocol.dart';
+
+export 'channel_health.dart' show ChannelHealth;
 
 /// The connection lifecycle of a [Reverb] client.
 enum ReverbState {
@@ -176,6 +179,17 @@ class Reverb with WidgetsBindingObserver {
   /// stale even though it is, by identity, the channel currently registered.
   final Map<String, int> _generations = <String, int>{};
 
+  /// Channels the server has acknowledged with a subscription-succeeded frame.
+  ///
+  /// `_channels` is what we *intend* to be subscribed to and drives the
+  /// reconnect pass; this is what is actually live right now. A channel whose
+  /// authorization failed stays in `_channels` — so the next reconnect retries
+  /// it — while being absent here.
+  final Set<String> _live = <String>{};
+
+  final StreamController<ChannelHealth> _channelHealthController =
+      StreamController<ChannelHealth>.broadcast();
+
   final StreamController<ReverbState> _states =
       StreamController<ReverbState>.broadcast();
   final List<void Function()> _reconnectedCallbacks = <void Function()>[];
@@ -202,6 +216,15 @@ class Reverb with WidgetsBindingObserver {
 
   /// Connection state changes.
   Stream<ReverbState> get states => _states.stream;
+
+  /// Per-channel up/down notifications.
+  Stream<ChannelHealth> get channelHealth => _channelHealthController.stream;
+
+  /// Whether the server currently acknowledges [wireName].
+  ///
+  /// Pass the wire name, including any prefix — `'private-users.1'`, not
+  /// `'users.1'`.
+  bool isSubscribed(String wireName) => _live.contains(wireName);
 
   /// Registers [callback] to run after a dropped socket is fully restored.
   ///
@@ -241,6 +264,7 @@ class Reverb with WidgetsBindingObserver {
     _generation++;
     final connection = _connection;
     _connection = null;
+    _markAllChannelsDown();
     await connection?.close();
     // A concurrent connect() may have already restarted the client while the
     // close above was in flight; only report disconnected if nothing else
@@ -340,11 +364,13 @@ class Reverb with WidgetsBindingObserver {
     final fatalError = connection.fatalError;
     if (fatalError != null) {
       _shouldRun = false;
+      _markAllChannelsDown();
       _setState(ReverbState.failed);
       onError?.call(fatalError, null);
       return;
     }
 
+    _markAllChannelsDown();
     _setState(ReverbState.reconnecting);
     final generation = _generation;
     unawaited(
@@ -463,6 +489,7 @@ class Reverb with WidgetsBindingObserver {
     }
     unawaited(disconnect());
     unawaited(_states.close());
+    unawaited(_channelHealthController.close());
     _ownedHttpClient?.close();
   }
 
@@ -541,7 +568,10 @@ class Reverb with WidgetsBindingObserver {
         }
       } on Object catch (error, stackTrace) {
         onError?.call(error, stackTrace);
-        if (attempt + 1 >= _maxAuthAttempts) return;
+        if (attempt + 1 >= _maxAuthAttempts) {
+          _setChannelHealth(channel.name, healthy: false);
+          return;
+        }
 
         await Future<void>.delayed(backoffDelay(attempt, _random));
 
@@ -595,6 +625,7 @@ class Reverb with WidgetsBindingObserver {
     if (!identical(_channels[channel.name], channel)) return;
     _channels.remove(channel.name);
     _generations[channel.name] = (_generations[channel.name] ?? 0) + 1;
+    _setChannelHealth(channel.name, healthy: false);
     _connection?.send(<String, dynamic>{
       'event': 'pusher:unsubscribe',
       'data': <String, dynamic>{'channel': channel.name},
@@ -610,6 +641,9 @@ class Reverb with WidgetsBindingObserver {
         // event name on the channel, since it is a server rejection, not an
         // application event. The most common cause is a broadcasting auth
         // endpoint signed with the wrong app secret.
+        if (frame.channel != null) {
+          _setChannelHealth(frame.channel!, healthy: false);
+        }
         onError?.call(
           ReverbSubscriptionError(frame.channel ?? '', frame.data),
           null,
@@ -628,6 +662,12 @@ class Reverb with WidgetsBindingObserver {
         return;
     }
 
+    if (frame.event == 'pusher_internal:subscription_succeeded' &&
+        frame.channel != null) {
+      _setChannelHealth(frame.channel!, healthy: true);
+      // Fall through: presence channels also listen for this event.
+    }
+
     final name = frame.channel;
     if (name == null) return;
     _channels[name]?.dispatch(frame.event, frame.data);
@@ -637,5 +677,24 @@ class Reverb with WidgetsBindingObserver {
     if (_state == next) return;
     _state = next;
     if (!_states.isClosed) _states.add(next);
+  }
+
+  /// Updates [wireName]'s liveness and emits on [channelHealth], but only on
+  /// an actual transition — reporting `healthy: false` twice for the same
+  /// channel would be noise a consumer had to dedupe itself.
+  void _setChannelHealth(String wireName, {required bool healthy}) {
+    final changed = healthy ? _live.add(wireName) : _live.remove(wireName);
+    if (!changed) return;
+    if (_channelHealthController.isClosed) return;
+    _channelHealthController
+        .add(ChannelHealth(channel: wireName, healthy: healthy));
+  }
+
+  /// Marks every currently-live channel unhealthy, e.g. when the socket
+  /// drops entirely.
+  void _markAllChannelsDown() {
+    for (final String name in _live.toList()) {
+      _setChannelHealth(name, healthy: false);
+    }
   }
 }
