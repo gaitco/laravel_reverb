@@ -43,6 +43,23 @@ final reverb = Reverb(
 await reverb.connect();
 ```
 
+## Errors, state and teardown
+
+- `onError` (constructor parameter) is how the package reports runtime
+  failures it handled without throwing — a dropped socket, a rejected
+  subscription, a failed authorizer, a non-fatal protocol error. There is no
+  other channel for these; if you don't pass it, they are reported nowhere.
+- `reverb.states` is a `Stream<ReverbState>` of every connection state
+  change (`connecting`, `connected`, `reconnecting`, `disconnected`,
+  `failed`); `reverb.state` is the current value.
+- `handleAppLifecycle` (default `true`) disconnects on background and
+  reconnects on foreground, so iOS doesn't hold a socket the OS will
+  silently kill. Set it to `false` if your app manages the socket itself.
+- Call `reverb.dispose()` from your app's teardown (e.g. alongside other
+  singletons at shutdown). It disconnects, stops observing app lifecycle
+  events and closes the `states` stream — skipping it leaks the socket and
+  the lifecycle observer.
+
 ## Recipes
 
 ### Public channel
@@ -79,6 +96,13 @@ class _OrderScreenState extends State<OrderScreen> {
   }
 }
 ```
+
+A channel handle is only live while it has at least one listener. Once the
+last one is cancelled, the channel unsubscribes and is dropped from the
+registry — calling `listen` again on that same handle does not resend
+`pusher:subscribe`, so it silently receives nothing. Ask `reverb` for the
+channel again (`reverb.private('users.1')`, etc.) rather than reusing a
+handle whose last listener you already cancelled.
 
 ### Presence channel
 
@@ -122,10 +146,24 @@ auth signature is bound to the socket id it was issued for.
 Reverb does not replay events missed while disconnected — this is exactly
 what `onReconnected` is for. It fires only after every previously-live
 channel has resubscribed (so a refetch can't race a half-restored socket),
-and it does not fire on the first successful connect:
+and it does not fire on the first successful connect — but an explicit
+`disconnect()` followed by `connect()` does fire it, since that is a real
+restore too:
 
 ```dart
 reverb.onReconnected(() => refetch());
+```
+
+If an `Authorizer` throws for a given private or presence channel, that
+failure is reported through `onError` and nothing retries automatically —
+the channel stays subscribed to nothing for the rest of the session (a wrong
+signature won't fix itself). To recover, cancel every listener on it (so it
+is removed from the registry) and request it again to force a fresh
+authorization attempt:
+
+```dart
+subscription.cancel();
+final channel = reverb.private('users.1'); // retries authorization
 ```
 
 ## Custom authorizer

@@ -12,7 +12,8 @@ export 'src/channel.dart'
         PresenceMember,
         PrivateChannel,
         ReverbEventCallback,
+        ReverbSubscriptionError,
         Subscription;
-export 'src/connection.dart' show ReverbFatalError;
-export 'src/protocol.dart' show ReverbFrame;
+export 'src/connection.dart'
+    show ReverbConnectionClosed, ReverbFatalError, ReverbProtocolError;
 export 'src/reverb.dart' show Reverb, ReverbState;

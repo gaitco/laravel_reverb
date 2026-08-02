@@ -207,6 +207,18 @@ void main() {
     });
   });
 
+  test(
+      'close fails an in-flight handshake instead of leaving it pending '
+      'forever', () async {
+    final socket = FakeSocket();
+    final connection = connectionFor(socket);
+
+    final opened = connection.open();
+    unawaited(connection.close());
+
+    await expectLater(opened, throwsA(isA<ReverbConnectionClosed>()));
+  });
+
   test('a handshake missing socket_id tears the connection down', () {
     fakeAsync((async) {
       final socket = FakeSocket();

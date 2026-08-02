@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_reverb/src/auth.dart';
+import 'package:flutter_reverb/src/channel.dart';
+import 'package:flutter_reverb/src/connection.dart';
 import 'package:flutter_reverb/src/reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -293,6 +295,55 @@ void main() {
 
     expect(states, isEmpty);
     expect(() => reverb.dispose(), returnsNormally);
+  });
+
+  test(
+      'a rejected subscription reports through onError instead of vanishing '
+      'silently', () async {
+    final socket = FakeSocket();
+    final errors = <Object>[];
+    final reverb = reverbFor(socket, onError: (e, _) => errors.add(e));
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    reverb.private('users.1').listen('OrderCreated', (_) {});
+    await settle();
+
+    socket.emitJson(<String, dynamic>{
+      'event': 'pusher:subscription_error',
+      'channel': 'private-users.1',
+      'data': '{"type":"AuthError","error":"Invalid signature"}',
+    });
+    await settle();
+
+    expect(errors.single, isA<ReverbSubscriptionError>());
+    final error = errors.single as ReverbSubscriptionError;
+    expect(error.channelName, 'private-users.1');
+    expect(error.reason['error'], 'Invalid signature');
+  });
+
+  test(
+      'a non-fatal pusher:error reports through onError without failing the '
+      'connection', () async {
+    final socket = FakeSocket();
+    final errors = <Object>[];
+    final reverb = reverbFor(socket, onError: (e, _) => errors.add(e));
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    socket.emitJson(<String, dynamic>{
+      'event': 'pusher:error',
+      'data': '{"message":"Unsupported client protocol version"}',
+    });
+    await settle();
+
+    expect(errors.single, isA<ReverbProtocolError>());
+    expect((errors.single as ReverbProtocolError).code, isNull);
+    expect(reverb.state, ReverbState.connected);
   });
 
   test('a failed connection attempt sets state to failed and reports onError',

@@ -28,6 +28,22 @@ class ReverbFatalError implements Exception {
   String toString() => 'ReverbFatalError($code): $message';
 }
 
+/// A non-fatal `pusher:error` from the server: worth surfacing to the host
+/// application, but not grounds to stop reconnecting.
+class ReverbProtocolError implements Exception {
+  /// Creates the error.
+  const ReverbProtocolError(this.code, this.message);
+
+  /// The `pusher:error` code, or null when the server sent none.
+  final int? code;
+
+  /// The human readable message from the server.
+  final String message;
+
+  @override
+  String toString() => 'ReverbProtocolError($code): $message';
+}
+
 /// Raised when the socket closes before the handshake completes.
 class ReverbConnectionClosed implements Exception {
   /// Creates the exception.
@@ -123,6 +139,12 @@ class Connection {
 
   /// Closes the socket from this side.
   Future<void> close() async {
+    // Without this, a close() that lands mid-handshake (e.g. the app is
+    // backgrounded while `open()` is still awaiting the server) leaves the
+    // handshake completer pending forever, so the caller's `await open()` —
+    // and everything chained onto it, including `Reverb.connect()` — never
+    // resumes.
+    _failHandshake(const ReverbConnectionClosed());
     _stopTimers();
     final subscription = _subscription;
     _subscription = null;
@@ -195,7 +217,15 @@ class Connection {
       _fatalError = error;
       _failHandshake(error);
       unawaited(close());
+      return;
     }
+
+    // Non-fatal: the connection survives, but silently dropping this left
+    // the application with no way to learn a subscription's auth was wrong,
+    // a payload was malformed, etc. Forward it as a frame so `Reverb` can
+    // route it to `onError`; it carries no channel, so it never reaches a
+    // `Channel.dispatch`.
+    if (!_frames.isClosed) _frames.add(frame);
   }
 
   void _onSocketError(Object error, StackTrace stackTrace) {

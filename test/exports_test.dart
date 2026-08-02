@@ -12,6 +12,15 @@ void main() {
       const ReverbAuthException('private-a', 403, 'no').statusCode,
       403,
     );
+    // The error every ordinary drop delivers to onError — must be
+    // type-testable by hosts, unlike the internal-only ReverbFrame.
+    expect(const ReverbConnectionClosed(), isA<Exception>());
+    expect(const ReverbProtocolError(4200, 'x').message, 'x');
+    expect(
+      const ReverbSubscriptionError('private-a', <String, dynamic>{})
+          .channelName,
+      'private-a',
+    );
     expect(Reverb.clientVersion, isNotEmpty);
   });
 }

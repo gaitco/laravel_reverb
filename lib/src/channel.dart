@@ -1,5 +1,25 @@
 import 'protocol.dart';
 
+/// Raised when the server rejects a channel subscription.
+///
+/// The most common cause is a `/broadcasting/auth` endpoint signing with the
+/// wrong app secret: auth returns 200, `pusher:subscribe` is sent, and the
+/// server answers with `pusher:subscription_error` instead of ever
+/// dispatching an event on that channel.
+class ReverbSubscriptionError implements Exception {
+  /// Creates the error.
+  const ReverbSubscriptionError(this.channelName, this.reason);
+
+  /// The channel the server refused to subscribe.
+  final String channelName;
+
+  /// The server's decoded `pusher:subscription_error` payload.
+  final Map<String, dynamic> reason;
+
+  @override
+  String toString() => 'ReverbSubscriptionError($channelName): $reason';
+}
+
 /// Receives the decoded payload of a broadcast event.
 typedef ReverbEventCallback = void Function(Map<String, dynamic> data);
 
@@ -41,6 +61,13 @@ class Subscription {
 }
 
 /// A public channel: events in, no authorization, no client events.
+///
+/// Ref-counted by listener: once the last [Subscription] returned by
+/// [listen] is cancelled, the owning `Reverb` drops this channel from its
+/// registry and unsubscribes on the wire. Calling [listen] again on the same
+/// handle after that point does not resend `pusher:subscribe` — it silently
+/// receives nothing. Get a fresh handle from `Reverb.channel` (or `private`/
+/// `presence`) instead of re-listening on one you already emptied.
 class Channel {
   /// Creates a channel. Applications get channels from `Reverb`, not directly.
   Channel({
