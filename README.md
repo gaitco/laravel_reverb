@@ -98,11 +98,21 @@ final reverb = Reverb(
 );
 ```
 
-**Android may block cleartext.** Android's cleartext restrictions apply from
-API 28, and whether a particular networking stack honours them varies. The
-opt-in costs nothing on a debug build and removes the question — it also
-covers any WebView or native-plugin traffic your app makes to the same host.
-In `android/app/src/debug/AndroidManifest.xml`:
+**Android's cleartext restriction does not affect this package.** You do not
+need `usesCleartextTraffic` to reach a local Reverb server over `ws://`.
+
+Android blocks cleartext from API 28, but that restriction is enforced by
+`NetworkSecurityPolicy` in the Java networking stack. This package's socket
+comes from `web_socket_channel` → `dart:io`, which opens sockets from the Dart
+VM and never consults that policy. Verified on an API 34 emulator with a
+stock manifest: a plain `dart:io` `HttpClient` GET, a raw
+`WebSocketChannel.connect`, and a full `Reverb` handshake all succeeded over
+cleartext with no opt-in of any kind.
+
+You still need it for traffic that *does* go through the Java stack — a
+WebView, or a native plugin using OkHttp — talking to the same host. If that
+applies, put it in `android/app/src/debug/AndroidManifest.xml` so release
+builds stay cleartext-free:
 
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -113,8 +123,8 @@ In `android/app/src/debug/AndroidManifest.xml`:
 
 Keep the `INTERNET` permission line. That file is where Flutter's template
 declares it for debug builds, so replacing the file without it leaves a debug
-build with no networking at all. Putting the cleartext flag here keeps release
-builds cleartext-free.
+build with no networking at all — which looks exactly like the connection
+problem you were trying to fix.
 
 **Self-signed TLS is not worth it locally.** If you terminate TLS in front of
 Reverb with a self-signed certificate, Dart rejects it, and there is no hook
@@ -124,12 +134,14 @@ the simpler answer. Use real certificates in staging and production, where
 
 ### It connects on iOS but not Android
 
-In order, the three usual causes:
+In order, the two usual causes:
 
 1. `host` is `localhost` — an Android emulator needs `10.0.2.2`.
-2. Cleartext may be blocked — add the debug manifest above and retry.
-3. `authEndpoint` still points at `localhost` — it needs the same
+2. `authEndpoint` still points at `localhost` — it needs the same
    platform-specific host as the socket.
+
+It is almost certainly not cleartext. That is the first thing people reach
+for and it does not apply to this package's socket — see above.
 
 Pass `onLog: print` and `onError: (e, _) => print(e)` to the constructor while
 debugging; between them, every connection attempt and every failure is
