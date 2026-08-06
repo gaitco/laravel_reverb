@@ -88,17 +88,6 @@ abstract class _ReverbBase with WidgetsBindingObserver {
   /// stale even though it is, by identity, the channel currently registered.
   final Map<String, int> _generations = <String, int>{};
 
-  /// Channels the server has acknowledged with a subscription-succeeded frame.
-  ///
-  /// `_channels` is what we *intend* to be subscribed to and drives the
-  /// reconnect pass; this is what is actually live right now. A channel whose
-  /// authorization failed stays in `_channels` — so the next reconnect retries
-  /// it — while being absent here.
-  final Set<String> _live = <String>{};
-
-  final StreamController<ChannelHealth> _channelHealthController =
-      StreamController<ChannelHealth>.broadcast();
-
   final StreamController<ReverbState> _states =
       StreamController<ReverbState>.broadcast();
   final List<void Function()> _reconnectedCallbacks = <void Function()>[];

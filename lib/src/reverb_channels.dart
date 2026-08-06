@@ -216,6 +216,15 @@ mixin _ReverbChannels on _ReverbBase, _ReverbHealth {
     });
   }
 
+  /// Clears every presence channel's roster, e.g. when the socket drops
+  /// entirely — membership does not survive a socket, and the resubscribe
+  /// re-seeds it from the server.
+  void _resetPresenceRosters() {
+    for (final Channel channel in _channels.values) {
+      if (channel is PresenceChannel) channel.resetPresence();
+    }
+  }
+
   /// Returns the `send` function a channel uses for
   /// [PrivateChannel.whisper], bound to [epoch].
   ///

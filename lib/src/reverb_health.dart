@@ -1,6 +1,17 @@
 part of 'reverb.dart';
 
 mixin _ReverbHealth on _ReverbBase {
+  /// Channels the server has acknowledged with a subscription-succeeded frame.
+  ///
+  /// `_channels` is what we *intend* to be subscribed to and drives the
+  /// reconnect pass; this is what is actually live right now. A channel whose
+  /// authorization failed stays in `_channels` — so the next reconnect retries
+  /// it — while being absent here.
+  final Set<String> _live = <String>{};
+
+  final StreamController<ChannelHealth> _channelHealthController =
+      StreamController<ChannelHealth>.broadcast();
+
   /// Per-channel up/down notifications.
   Stream<ChannelHealth> get channelHealth => _channelHealthController.stream;
 
@@ -26,15 +37,6 @@ mixin _ReverbHealth on _ReverbBase {
   void _markAllChannelsDown() {
     for (final String name in _live.toList()) {
       _setChannelHealth(name, healthy: false);
-    }
-  }
-
-  /// Clears every presence channel's roster, e.g. when the socket drops
-  /// entirely — membership does not survive a socket, and the resubscribe
-  /// re-seeds it from the server.
-  void _resetPresenceRosters() {
-    for (final Channel channel in _channels.values) {
-      if (channel is PresenceChannel) channel.resetPresence();
     }
   }
 }
