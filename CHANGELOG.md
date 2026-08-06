@@ -1,3 +1,25 @@
+## 0.6.0
+
+Cleanup. No new capability, and nothing an existing app has to change.
+
+- **`ReverbFake.emitFrame`.** `emit` builds an application event, which left
+  two things unreachable from a test: seeding a presence roster, which arrives
+  as a `pusher_internal:subscription_succeeded` frame, and connection-level
+  frames such as `pusher:error`, which carry no channel. `emitFrame` sends a
+  frame verbatim. The README shows roster seeding.
+- **`ReverbFake` explains itself before `connect()`.** Calling `emit`,
+  `emitFrame` or `drop` on a fake that has not connected threw a null-check
+  error from inside the fake; it now throws a `StateError` naming the mistake.
+- **Each mixin owns its own state.** 0.5.0 split `Reverb` into three mixins but
+  left all 29 fields on the shared base, so any mixin could still mutate any
+  field. The registry and both epoch counters now live with the channel code,
+  liveness with the health code, and the connect loop's state with the connect
+  loop — leaving only constructor-injected values and the socket itself shared.
+  Internal throughout: no public API changed and no test changed.
+- Test coverage for an all-slashes `path`, cache misses on `private-cache-` and
+  `presence-cache-` channels, and an exports check that catches an accidental
+  addition rather than only an accidental removal.
+
 ## 0.5.0
 
 Observability and testability, on a `reverb.dart` that no longer does
