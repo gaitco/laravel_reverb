@@ -65,5 +65,12 @@ abstract class _ReverbBase with WidgetsBindingObserver {
   /// close, not this class's.
   late final http.Client? _ownedHttpClient;
 
+  /// The live socket, or null while disconnected — the one mutable field two
+  /// mixins share. [_ReverbChannels] sends through it; [_ReverbConnect] owns
+  /// its lifecycle. It stays here rather than in [_ReverbConnect] because
+  /// [_ReverbChannels] cannot depend on [_ReverbConnect] without closing the
+  /// `on` chain into a cycle, and rather than in [_ReverbChannels] — which
+  /// would compile — because a field whose whole lifecycle lives in one mixin
+  /// should not be declared in another.
   Connection? _connection;
 }

@@ -50,9 +50,11 @@ void main() {
 
   test('the entry point exports exactly the documented API', () {
     // The rest of this file fails when something stops being exported. This
-    // one fails when something *starts* being exported — an accidental
-    // addition is otherwise invisible until it is someone's breaking change
-    // to remove.
+    // one fails when something starts being exported that isn't listed below
+    // — but only for names added to an existing `show` clause. An export
+    // written without one publishes every public name in that file with no
+    // change to the shown-name set, so a bare export is checked separately,
+    // first.
     const expected = <String>{
       'Authorizer',
       'Channel',
@@ -75,6 +77,15 @@ void main() {
     };
 
     final source = File('lib/laravel_reverb.dart').readAsStringSync();
+
+    final bare = RegExp(r'^export\s+[^;]*;', multiLine: true)
+        .allMatches(source)
+        .map((RegExpMatch m) => m.group(0)!)
+        .where((String d) => !d.contains('show'));
+    expect(bare, isEmpty,
+        reason: 'Every export must name what it exports, or the set check '
+            'below cannot see what it added.');
+
     final actual = RegExp(r'show\s+([^;]+);')
         .allMatches(source)
         .expand((RegExpMatch m) => m.group(1)!.split(','))
@@ -82,6 +93,8 @@ void main() {
         .where((String name) => name.isNotEmpty)
         .toSet();
 
-    expect(actual, expected);
+    expect(actual, expected,
+        reason: 'lib/laravel_reverb.dart is the truth. If you meant to add or '
+            'remove a public name, update the expected set here to match.');
   });
 }

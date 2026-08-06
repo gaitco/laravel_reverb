@@ -112,6 +112,25 @@ void main() {
     fake.dispose();
   });
 
+  test('delivers a channel-less frame such as pusher:error through emitFrame',
+      () async {
+    Object? caught;
+    final fake = ReverbFake(onError: (Object error, StackTrace? _) {
+      caught = error;
+    });
+    await fake.connect();
+
+    fake.emitFrame(<String, dynamic>{
+      'event': 'pusher:error',
+      'data': <String, dynamic>{'code': 4200, 'message': 'boom'},
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(caught, isA<ReverbProtocolError>());
+    expect((caught! as ReverbProtocolError).message, 'boom');
+    fake.dispose();
+  });
+
   test('emit before connect explains itself', () {
     final fake = ReverbFake();
 

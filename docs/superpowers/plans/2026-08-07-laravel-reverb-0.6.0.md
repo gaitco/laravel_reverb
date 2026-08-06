@@ -36,7 +36,7 @@ Tasks 1-3 implement exactly this. Nothing else moves.
 
 29 fields today: 16 move, 13 stay.
 
-`_connection` stays on the base deliberately. `_ReverbChannels._subscribe` and `_sendFor` need it to send; `_ReverbConnect._open` and `_onDropped` need it to manage the socket. Moving it into either would make the `on` chain circular.
+`_connection` stays on the base deliberately. `_ReverbChannels._subscribe` and `_sendFor` need it to send; `_ReverbConnect._open` and `_onDropped` need it to manage the socket. Moving it into `_ReverbConnect` would make the `on` chain circular. Moving it into `_ReverbChannels` would compile — `_ReverbConnect` already declares `on _ReverbBase, _ReverbHealth, _ReverbChannels`, so it would reach `_connection` through an edge that already exists — but it would be semantically wrong: the socket is created, opened, closed and nulled by `_ReverbConnect` and merely used by `_ReverbChannels`, so it belongs in the mixin that owns its lifecycle, not the one that only sends through it.
 
 ## File Structure
 

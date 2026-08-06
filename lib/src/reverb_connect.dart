@@ -89,7 +89,7 @@ mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels {
     _generation++;
     _markAllChannelsDown();
     _connectedSince = null;
-    // Must run before _channels.clear() below: it walks _channels to reset
+    // Must run before _forgetAllChannels() below: it walks _channels to reset
     // each PresenceChannel's roster, so clearing the registry first would
     // leave a stale handle's roster holding the previous user's membership.
     _resetPresenceRosters();

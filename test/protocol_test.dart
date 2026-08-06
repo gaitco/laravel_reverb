@@ -127,7 +127,7 @@ void main() {
         port: 443,
         appKey: 'abc',
         useTls: true,
-        clientVersion: '0.6.0',
+        clientVersion: '0.4.0',
         path: '///',
       );
 

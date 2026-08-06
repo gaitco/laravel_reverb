@@ -496,6 +496,7 @@ fake.emitFrame({
     },
   },
 });
+await Future<void>.delayed(Duration.zero);
 ```
 
 `emitFrame` is also how you deliver a channel-less frame such as

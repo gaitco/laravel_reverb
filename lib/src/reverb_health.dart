@@ -1,6 +1,6 @@
 part of 'reverb.dart';
 
-mixin _ReverbHealth on _ReverbBase {
+mixin _ReverbHealth {
   /// Channels the server has acknowledged with a subscription-succeeded frame.
   ///
   /// `_channels` is what we *intend* to be subscribed to and drives the

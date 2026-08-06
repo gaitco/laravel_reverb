@@ -242,6 +242,9 @@ mixin _ReverbChannels on _ReverbBase, _ReverbHealth {
   /// Bumping [_clientEpoch] is what makes every handle created before the
   /// call inert: [_resubscribe] refuses a channel whose epoch has moved on,
   /// and [_sendFor] turns its whispers into no-ops.
+  ///
+  /// Callers must reset presence rosters first — this clears the registry
+  /// that [_resetPresenceRosters] walks.
   void _forgetAllChannels() {
     _clientEpoch++;
     _channels.clear();

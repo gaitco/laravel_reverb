@@ -7,9 +7,10 @@ Cleanup. No new capability, and nothing an existing app has to change.
   as a `pusher_internal:subscription_succeeded` frame, and connection-level
   frames such as `pusher:error`, which carry no channel. `emitFrame` sends a
   frame verbatim. The README shows roster seeding.
-- **`ReverbFake` explains itself before `connect()`.** Calling `emit`,
-  `emitFrame` or `drop` on a fake that has not connected threw a null-check
-  error from inside the fake; it now throws a `StateError` naming the mistake.
+- **`ReverbFake` explains itself before `connect()`.** Calling `emit` or
+  `drop` on a fake that has not connected threw a null-check error from
+  inside the fake; both now throw a `StateError` naming the mistake, and the
+  new `emitFrame` shares the same guard.
 - **Each mixin owns its own state.** 0.5.0 split `Reverb` into three mixins but
   left all 29 fields on the shared base, so any mixin could still mutate any
   field. The registry and both epoch counters now live with the channel code,
