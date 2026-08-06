@@ -54,18 +54,26 @@ Map<String, dynamic> decodeData(Object? raw) {
 }
 
 /// Builds the Reverb socket URL for [appKey].
+///
+/// [path] mirrors Reverb's `REVERB_SERVER_PATH`: a server hosted behind a
+/// reverse proxy at `/ws` serves the app endpoint at `/ws/app/KEY`. Leading
+/// and trailing slashes are optional, so `ws`, `/ws` and `/ws/` are the same
+/// path.
 Uri buildSocketUrl({
   required String host,
   required int port,
   required String appKey,
   required bool useTls,
   required String clientVersion,
+  String path = '',
 }) {
+  final prefix = path.replaceAll(RegExp(r'^/+|/+$'), '');
+
   return Uri(
     scheme: useTls ? 'wss' : 'ws',
     host: host,
     port: port,
-    path: '/app/$appKey',
+    path: prefix.isEmpty ? '/app/$appKey' : '/$prefix/app/$appKey',
     queryParameters: <String, String>{
       'protocol': '7',
       'client': 'flutter',

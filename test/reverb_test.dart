@@ -71,6 +71,30 @@ void main() {
     });
   });
 
+  test('connects to the custom server path when one is configured', () async {
+    final socket = FakeSocket();
+    Uri? dialled;
+
+    final reverb = Reverb(
+      host: 'localhost',
+      port: 8080,
+      appKey: 'key',
+      useTls: false,
+      path: '/ws',
+      socketFactory: (Uri url) {
+        dialled = url;
+        return socket.channel;
+      },
+    );
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    expect(dialled!.path, '/ws/app/key');
+    reverb.dispose();
+  });
+
   test('queues channels created before the handshake and flushes them',
       () async {
     final socket = FakeSocket();

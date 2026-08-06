@@ -41,6 +41,11 @@ class Reverb with WidgetsBindingObserver {
   /// Provide either [authorizer] or [authEndpoint] to use private and presence
   /// channels; public channels need neither.
   ///
+  /// [path] mirrors Reverb's `REVERB_SERVER_PATH` for a server behind a
+  /// reverse proxy on a subpath: `path: '/ws'` dials `/ws/app/KEY` instead of
+  /// `/app/KEY`. Leave it empty for a Reverb server at the root, which is the
+  /// default deployment.
+  ///
   /// [socketFactory], [random] and [httpClientFactory] are test seams, not
   /// for application use: they let tests substitute a fake socket, a seeded/
   /// deterministic source of backoff jitter, and a trackable HTTP client.
@@ -55,6 +60,7 @@ class Reverb with WidgetsBindingObserver {
     required String appKey,
     int? port,
     bool useTls = true,
+    String path = '',
     String? authEndpoint,
     Future<Map<String, String>> Function()? authHeaders,
     Authorizer? authorizer,
@@ -76,6 +82,7 @@ class Reverb with WidgetsBindingObserver {
           appKey: appKey,
           useTls: useTls,
           clientVersion: clientVersion,
+          path: path,
         ) {
     final ping = pingInterval;
     final watchdog = watchdogTimeout;

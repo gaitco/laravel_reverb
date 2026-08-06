@@ -57,10 +57,13 @@ BROADCAST_CONNECTION=reverb
 REVERB_APP_KEY=your-reverb-app-key
 REVERB_HOST=api.example.com
 REVERB_PORT=443
+REVERB_SERVER_PATH=
 ```
 
 These map directly onto the `Reverb` constructor: `REVERB_APP_KEY` to
-`appKey`, `REVERB_HOST` to `host`, `REVERB_PORT` to `port`.
+`appKey`, `REVERB_HOST` to `host`, `REVERB_PORT` to `port`, and
+`REVERB_SERVER_PATH` to `path` — set that last one only if your Reverb server
+sits behind a reverse proxy on a subpath, such as `/ws`.
 
 ## How it fits together
 

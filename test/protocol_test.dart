@@ -78,6 +78,48 @@ void main() {
       expect(url.scheme, 'ws');
       expect(url.port, 8080);
     });
+
+    test('prefixes a custom server path onto the app path', () {
+      final url = buildSocketUrl(
+        host: 'api.example.com',
+        port: 443,
+        appKey: 'abc',
+        useTls: true,
+        clientVersion: '0.4.0',
+        path: '/ws',
+      );
+
+      expect(url.path, '/ws/app/abc');
+    });
+
+    test('normalizes a path given with or without slashes', () {
+      Uri urlFor(String path) => buildSocketUrl(
+            host: 'api.example.com',
+            port: 443,
+            appKey: 'abc',
+            useTls: true,
+            clientVersion: '0.4.0',
+            path: path,
+          );
+
+      expect(urlFor('ws').path, '/ws/app/abc');
+      expect(urlFor('/ws').path, '/ws/app/abc');
+      expect(urlFor('/ws/').path, '/ws/app/abc');
+      expect(urlFor('/realtime/ws/').path, '/realtime/ws/app/abc');
+    });
+
+    test('leaves the app path alone when no path is given', () {
+      final url = buildSocketUrl(
+        host: 'api.example.com',
+        port: 443,
+        appKey: 'abc',
+        useTls: true,
+        clientVersion: '0.4.0',
+        path: '',
+      );
+
+      expect(url.path, '/app/abc');
+    });
   });
 
   group('backoffDelay', () {
