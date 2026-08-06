@@ -69,19 +69,7 @@ mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels {
     _resetPresenceRosters();
 
     if (forget) {
-      _clientEpoch++;
-      _channels.clear();
-      // Resets the per-channel-name generation to 0 for every name. This is
-      // not what stops a pending authorizer retry — _subscribe re-checks
-      // `(_generations[name] ?? 0) == generation`, and a retry that captured
-      // 0 still matches 0 after this clear. What actually strands it is
-      // _channels.clear() just above: current()'s identity check
-      // (`identical(_channels[channel.name], channel)`) fails once the
-      // channel is gone from the registry, on top of the existing
-      // socket-id guard. This clear exists so a channel name freed by
-      // forget starts its next life at generation 0 instead of some
-      // arbitrary leftover count.
-      _generations.clear();
+      _forgetAllChannels();
       // onReconnected callbacks close over whichever session registered
       // them; without clearing them here, the next user's first connect
       // would run the previous user's reconcile logic. Resetting

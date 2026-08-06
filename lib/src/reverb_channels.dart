@@ -7,6 +7,26 @@ mixin _ReverbChannels on _ReverbBase, _ReverbHealth {
   /// giving-up: see [_subscribe]'s doc comment for what restarts it.
   static const int _maxAuthAttempts = 3;
 
+  final Map<String, Channel> _channels = <String, Channel>{};
+
+  /// Bumped per channel name every time [_unsubscribe] actually evicts that
+  /// name's occupant.
+  ///
+  /// Needed because a revived handle is the *same object* the registry held
+  /// before: `identical(_channels[channel.name], channel)` is true again the
+  /// moment [_resubscribe] puts it back, so identity alone cannot tell a
+  /// subscribe attempt from before the eviction apart from one started
+  /// after it. [_subscribe] captures the generation for [channel.name] at
+  /// entry and re-checks it before ever sending, so a stale attempt left
+  /// over from before an unsubscribe+resubscribe cycle is recognized as
+  /// stale even though it is, by identity, the channel currently registered.
+  final Map<String, int> _generations = <String, int>{};
+
+  /// Bumped by `disconnect(forget: true)`. Distinct from `_generations`,
+  /// which is per channel name and guards a stale in-flight subscribe; this
+  /// one is per client and guards post-logout revival.
+  int _clientEpoch = 0;
+
   /// Returns the public channel named [name], creating it on first use.
   ///
   /// The handle returned stays usable for as long as you hold it, even
@@ -214,6 +234,28 @@ mixin _ReverbChannels on _ReverbBase, _ReverbHealth {
       'event': 'pusher:unsubscribe',
       'data': <String, dynamic>{'channel': channel.name},
     });
+  }
+
+  /// Drops every channel and resets per-name generations, for
+  /// `disconnect(forget: true)`.
+  ///
+  /// Bumping [_clientEpoch] is what makes every handle created before the
+  /// call inert: [_resubscribe] refuses a channel whose epoch has moved on,
+  /// and [_sendFor] turns its whispers into no-ops.
+  void _forgetAllChannels() {
+    _clientEpoch++;
+    _channels.clear();
+    // Resets the per-channel-name generation to 0 for every name. This is
+    // not what stops a pending authorizer retry — _subscribe re-checks
+    // `(_generations[name] ?? 0) == generation`, and a retry that captured
+    // 0 still matches 0 after this clear. What actually strands it is
+    // _channels.clear() just above: current()'s identity check
+    // (`identical(_channels[channel.name], channel)`) fails once the
+    // channel is gone from the registry, on top of the existing
+    // socket-id guard. This clear exists so a channel name freed by
+    // forget starts its next life at generation 0 instead of some
+    // arbitrary leftover count.
+    _generations.clear();
   }
 
   /// Clears every presence channel's roster, e.g. when the socket drops

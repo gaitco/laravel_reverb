@@ -73,21 +73,6 @@ abstract class _ReverbBase with WidgetsBindingObserver {
   bool _pausedByLifecycle = false;
   bool _observing = false;
 
-  final Map<String, Channel> _channels = <String, Channel>{};
-
-  /// Bumped per channel name every time [_unsubscribe] actually evicts that
-  /// name's occupant.
-  ///
-  /// Needed because a revived handle is the *same object* the registry held
-  /// before: `identical(_channels[channel.name], channel)` is true again the
-  /// moment [_resubscribe] puts it back, so identity alone cannot tell a
-  /// subscribe attempt from before the eviction apart from one started
-  /// after it. [_subscribe] captures the generation for [channel.name] at
-  /// entry and re-checks it before ever sending, so a stale attempt left
-  /// over from before an unsubscribe+resubscribe cycle is recognized as
-  /// stale even though it is, by identity, the channel currently registered.
-  final Map<String, int> _generations = <String, int>{};
-
   final StreamController<ReverbState> _states =
       StreamController<ReverbState>.broadcast();
   final List<void Function()> _reconnectedCallbacks = <void Function()>[];
@@ -105,9 +90,4 @@ abstract class _ReverbBase with WidgetsBindingObserver {
   /// leaving two live sockets both wired to [_onFrame] and every event
   /// delivered twice.
   int _generation = 0;
-
-  /// Bumped by `disconnect(forget: true)`. Distinct from `_generations`,
-  /// which is per channel name and guards a stale in-flight subscribe; this
-  /// one is per client and guards post-logout revival.
-  int _clientEpoch = 0;
 }
