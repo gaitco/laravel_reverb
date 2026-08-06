@@ -120,6 +120,19 @@ void main() {
 
       expect(url.path, '/app/abc');
     });
+
+    test('treats a path of only slashes as no path at all', () {
+      final url = buildSocketUrl(
+        host: 'api.example.com',
+        port: 443,
+        appKey: 'abc',
+        useTls: true,
+        clientVersion: '0.6.0',
+        path: '///',
+      );
+
+      expect(url.path, '/app/abc');
+    });
   });
 
   group('backoffDelay', () {

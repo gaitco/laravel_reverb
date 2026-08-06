@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:laravel_reverb/laravel_reverb.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -44,5 +46,42 @@ void main() {
       const ReverbSubscriptionError('private-a', <String, dynamic>{}),
       isA<ReverbException>(),
     );
+  });
+
+  test('the entry point exports exactly the documented API', () {
+    // The rest of this file fails when something stops being exported. This
+    // one fails when something *starts* being exported — an accidental
+    // addition is otherwise invisible until it is someone's breaking change
+    // to remove.
+    const expected = <String>{
+      'Authorizer',
+      'Channel',
+      'ChannelHealth',
+      'PresenceChannel',
+      'PresenceMember',
+      'PrivateChannel',
+      'Reverb',
+      'ReverbAuth',
+      'ReverbAuthException',
+      'ReverbConnectionClosed',
+      'ReverbEventCallback',
+      'ReverbException',
+      'ReverbFatalError',
+      'ReverbMetrics',
+      'ReverbProtocolError',
+      'ReverbState',
+      'ReverbSubscriptionError',
+      'Subscription',
+    };
+
+    final source = File('lib/laravel_reverb.dart').readAsStringSync();
+    final actual = RegExp(r'show\s+([^;]+);')
+        .allMatches(source)
+        .expand((RegExpMatch m) => m.group(1)!.split(','))
+        .map((String name) => name.trim())
+        .where((String name) => name.isNotEmpty)
+        .toSet();
+
+    expect(actual, expected);
   });
 }

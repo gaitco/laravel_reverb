@@ -1066,4 +1066,37 @@ void main() {
     expect(missed, isNotNull);
     reverb.dispose();
   });
+
+  test('delivers pusher:cache_miss on private- and presence- cache channels',
+      () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    final seen = <String>[];
+    reverb
+        .private('cache-orders')
+        .listen('pusher:cache_miss', (_) => seen.add('private-cache-orders'));
+    reverb
+        .presence('cache-room')
+        .listen('pusher:cache_miss', (_) => seen.add('presence-cache-room'));
+    await settle();
+
+    for (final String name in <String>[
+      'private-cache-orders',
+      'presence-cache-room',
+    ]) {
+      socket.emitJson(<String, dynamic>{
+        'event': 'pusher:cache_miss',
+        'channel': name,
+      });
+    }
+    await settle();
+
+    expect(seen, <String>['private-cache-orders', 'presence-cache-room']);
+    reverb.dispose();
+  });
 }
