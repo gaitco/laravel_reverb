@@ -81,12 +81,15 @@ not your Mac:
 | Physical device | Your machine's LAN IP, e.g. `192.168.1.20` |
 
 ```dart
+// `Platform` comes from dart:io.
+final host = Platform.isAndroid ? '10.0.2.2' : 'localhost';
+
 final reverb = Reverb(
-  host: Platform.isAndroid ? '10.0.2.2' : 'localhost',
+  host: host,
   port: 8080,
   appKey: 'your-reverb-app-key',
   useTls: false,
-  authEndpoint: 'http://10.0.2.2:8000/broadcasting/auth',
+  authEndpoint: 'http://$host:8000/broadcasting/auth',
 );
 ```
 
