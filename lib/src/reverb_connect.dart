@@ -62,6 +62,7 @@ mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels {
     _shouldRun = false;
     _generation++;
     _markAllChannelsDown();
+    _connectedSince = null;
     // Must run before _channels.clear() below: it walks _channels to reset
     // each PresenceChannel's roster, so clearing the registry first would
     // leave a stale handle's roster holding the previous user's membership.
@@ -120,6 +121,7 @@ mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels {
         onLog: onLog,
         pingInterval: pingInterval,
         watchdogTimeout: watchdogTimeout,
+        now: _now,
       );
       _connection = connection;
       connection.frames.listen(_onFrame);
@@ -157,6 +159,8 @@ mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels {
       _attempt = 0;
       _everConnected = true;
       _setState(ReverbState.connected);
+      _connectedSince = _now();
+      if (wasReconnect) _reconnectCount++;
 
       // Watch for a later drop before awaiting resubscription, so a socket
       // that dies mid-resubscribe still schedules a retry.
@@ -193,6 +197,7 @@ mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels {
     if (fatalError != null) {
       _shouldRun = false;
       _markAllChannelsDown();
+      _connectedSince = null;
       _resetPresenceRosters();
       _setState(ReverbState.failed);
       onError?.call(fatalError, null);
@@ -200,6 +205,7 @@ mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels {
     }
 
     _markAllChannelsDown();
+    _connectedSince = null;
     _resetPresenceRosters();
     _setState(ReverbState.reconnecting);
     final generation = _generation;

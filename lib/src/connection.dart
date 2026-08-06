@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:stream_channel/stream_channel.dart';
 
 import 'exceptions.dart';
@@ -28,7 +29,8 @@ class Connection {
     this.onLog,
     this.pingInterval,
     this.watchdogTimeout,
-  });
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
 
   /// The socket URL, including the protocol query parameters.
   final Uri url;
@@ -64,6 +66,7 @@ class Connection {
   final StreamController<ReverbFrame> _frames =
       StreamController<ReverbFrame>.broadcast();
   final Completer<void> _closed = Completer<void>();
+  final DateTime Function() _now;
 
   StreamChannel<dynamic>? _socket;
   StreamSubscription<dynamic>? _subscription;
@@ -75,6 +78,9 @@ class Connection {
   Duration _activityTimeout = const Duration(seconds: 120);
   String? _socketId;
   ReverbFatalError? _fatalError;
+  DateTime? _pingSentAt;
+  Duration? _lastLatency;
+  DateTime? _lastFrameAt;
 
   /// The socket id assigned by the server, or null before the handshake.
   String? get socketId => _socketId;
@@ -86,6 +92,16 @@ class Connection {
   /// Callers should check this once [closed] completes, to tell a fatal
   /// server rejection apart from an ordinary drop that is safe to retry.
   ReverbFatalError? get fatalError => _fatalError;
+
+  /// The most recent ping-to-pong round trip on this socket, or null when no
+  /// ping has been answered yet.
+  Duration? get lastLatency => _lastLatency;
+
+  /// When the last inbound frame arrived, or null if none has.
+  ///
+  /// This is what the watchdog watches; exposing it lets an application see
+  /// how stale a quiet socket has become before the watchdog acts.
+  DateTime? get lastFrameAt => _lastFrameAt;
 
   /// Frames this connection does not fully own itself: application-level
   /// events, plus non-fatal `pusher:error` and `pusher:subscription_error`
@@ -173,7 +189,11 @@ class Connection {
           'data': <String, dynamic>{},
         });
       case 'pusher:pong':
-        break;
+        final sentAt = _pingSentAt;
+        if (sentAt != null) {
+          _lastLatency = _now().difference(sentAt);
+          _pingSentAt = null;
+        }
       case 'pusher:error':
         _onProtocolError(frame);
       default:
@@ -249,6 +269,7 @@ class Connection {
   /// can take fast detection without also taking a faster ping, or vice
   /// versa — but one of the two is always live, whatever the configuration.
   void _onActivity() {
+    _lastFrameAt = _now();
     _pongTimer?.cancel();
     _pongTimer = null;
 
@@ -279,11 +300,17 @@ class Connection {
   }
 
   void _sendPing() {
+    _pingSentAt = _now();
     send(<String, dynamic>{
       'event': 'pusher:ping',
       'data': <String, dynamic>{},
     });
   }
+
+  /// Sends a `pusher:ping` immediately, for tests that need to drive a round
+  /// trip without waiting out [pingInterval].
+  @visibleForTesting
+  void sendPingForTest() => _sendPing();
 
   /// Arms the legacy pong deadline after a ping just went out, unless a
   /// watchdog is configured (it already covers death detection, and running

@@ -9,6 +9,7 @@ import 'auth.dart';
 import 'channel.dart';
 import 'channel_health.dart';
 import 'connection.dart';
+import 'metrics.dart';
 import 'protocol.dart';
 
 export 'channel_health.dart' show ChannelHealth;
@@ -52,15 +53,17 @@ class Reverb extends _ReverbBase
   /// `/app/KEY`. Leave it empty for a Reverb server at the root, which is the
   /// default deployment.
   ///
-  /// [socketFactory], [random] and [httpClientFactory] are test seams, not
-  /// for application use: they let tests substitute a fake socket, a seeded/
-  /// deterministic source of backoff jitter, and a trackable HTTP client.
-  /// `socketFactory`'s type, [SocketFactory], is internal and not exported,
-  /// so it cannot be named outside this package — pass a matching function
-  /// literal instead. [httpClientFactory] is only consulted when
-  /// [authEndpoint] is set and [authorizer] is not, since that is the only
-  /// case where this class creates an `http.Client` of its own. All three
-  /// parameters are marked `@visibleForTesting`.
+  /// [socketFactory], [random], [httpClientFactory] and [now] are test
+  /// seams, not for application use: they let tests substitute a fake
+  /// socket, a seeded/deterministic source of backoff jitter, a trackable
+  /// HTTP client, and a controllable clock. `socketFactory`'s type,
+  /// [SocketFactory], is internal and not exported, so it cannot be named
+  /// outside this package — pass a matching function literal instead.
+  /// [httpClientFactory] is only consulted when [authEndpoint] is set and
+  /// [authorizer] is not, since that is the only case where this class
+  /// creates an `http.Client` of its own. `now` lets a test drive latency
+  /// and staleness without real time passing. All four parameters are
+  /// marked `@visibleForTesting`.
   Reverb({
     required String host,
     required String appKey,
@@ -79,6 +82,7 @@ class Reverb extends _ReverbBase
     @visibleForTesting SocketFactory? socketFactory,
     @visibleForTesting math.Random? random,
     @visibleForTesting http.Client Function()? httpClientFactory,
+    @visibleForTesting DateTime Function()? now,
   }) : super(
           url: buildSocketUrl(
             host: host,
@@ -90,6 +94,7 @@ class Reverb extends _ReverbBase
           ),
           socketFactory: socketFactory ?? WebSocketChannel.connect,
           random: random ?? math.Random(),
+          now: now ?? DateTime.now,
         ) {
     final ping = pingInterval;
     final watchdog = watchdogTimeout;
@@ -129,6 +134,23 @@ class Reverb extends _ReverbBase
   /// unsubscribed rather than retried immediately again. Not a permanent
   /// giving-up: see [_subscribe]'s doc comment for what restarts it.
   static const int _maxAuthAttempts = 3;
+
+  /// A snapshot of connection quality, read on demand.
+  ///
+  /// Nothing streams these values: latency changes on every ping, so a
+  /// consumer that rebuilt on each change would redraw far more often than
+  /// anything it displays actually changes. Read this when you paint.
+  ReverbMetrics get metrics {
+    final lastFrameAt = _connection?.lastFrameAt;
+
+    return ReverbMetrics(
+      lastLatency: _connection?.lastLatency,
+      reconnectCount: _reconnectCount,
+      sinceLastFrame:
+          lastFrameAt == null ? null : _now().difference(lastFrameAt),
+      connectedSince: _connectedSince,
+    );
+  }
 
   /// Releases the state stream. Call from the host application's teardown.
   void dispose() {

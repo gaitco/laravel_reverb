@@ -405,6 +405,27 @@ reverb.channelHealth.listen((health) {
 prefix. `reverb.isSubscribed(wireName)` reports the current value for one
 channel without subscribing to the stream.
 
+## Connection quality
+
+`reverb.metrics` is a snapshot, read whenever you need it:
+
+```dart
+final metrics = reverb.metrics;
+
+metrics.lastLatency;     // Duration?  last ping/pong round trip
+metrics.reconnectCount;  // int        drops recovered from
+metrics.sinceLastFrame;  // Duration?  how stale the socket is
+metrics.connectedSince;  // DateTime?  null while disconnected
+```
+
+Nothing streams these. Latency changes on every ping, so a widget rebuilding
+on each change would redraw far more often than anything it displays actually
+changes — read `metrics` when you paint instead.
+
+`sinceLastFrame` is the one worth showing: climbing past the server's activity
+timeout is what a half-open socket looks like from the client's side, and it is
+what `watchdogTimeout` acts on. See [Keepalive](#keepalive).
+
 ## Custom authorizer
 
 For apps that need their own HTTP client, interceptors, token refresh or

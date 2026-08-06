@@ -6,6 +6,7 @@ abstract class _ReverbBase with WidgetsBindingObserver {
     required String namespace,
     required SocketFactory socketFactory,
     required math.Random random,
+    required DateTime Function() now,
     required this.onError,
     required this.onLog,
     required this.handleAppLifecycle,
@@ -14,7 +15,8 @@ abstract class _ReverbBase with WidgetsBindingObserver {
   })  : _url = url,
         _namespace = namespace,
         _socketFactory = socketFactory,
-        _random = random;
+        _random = random,
+        _now = now;
 
   /// Reports runtime failures that the package handled without throwing.
   final void Function(Object error, StackTrace? stackTrace)? onError;
@@ -52,6 +54,13 @@ abstract class _ReverbBase with WidgetsBindingObserver {
   final String _namespace;
   final SocketFactory _socketFactory;
   final math.Random _random;
+  final DateTime Function() _now;
+
+  /// How many drops have been recovered from. See [ReverbMetrics.reconnectCount].
+  int _reconnectCount = 0;
+
+  /// When the current socket completed its handshake, cleared when it drops.
+  DateTime? _connectedSince;
   late final Authorizer? _authorizer;
 
   /// The `http.Client` this instance created for the default HTTP

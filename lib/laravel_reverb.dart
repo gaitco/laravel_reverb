@@ -18,4 +18,5 @@ export 'src/channel_health.dart' show ChannelHealth;
 export 'src/connection.dart'
     show ReverbConnectionClosed, ReverbFatalError, ReverbProtocolError;
 export 'src/exceptions.dart' show ReverbException;
+export 'src/metrics.dart' show ReverbMetrics;
 export 'src/reverb.dart' show Reverb, ReverbState;
