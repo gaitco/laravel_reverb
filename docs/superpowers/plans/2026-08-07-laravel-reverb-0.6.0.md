@@ -91,8 +91,10 @@ Cut it from `lib/src/reverb_health.dart:32-39` and paste it into `mixin _ReverbC
 
 - [ ] **Step 4: Verify `_ReverbHealth` is now self-contained**
 
-Run: `grep -n "_channels\|_generation\|_clientEpoch\|_state\|_connection" lib/src/reverb_health.dart`
-Expected: **no output.** `_ReverbHealth` should reference only `_live`, `_channelHealthController`, and the `ChannelHealth` type.
+Run: `grep -vE "^\s*///" lib/src/reverb_health.dart | grep -n "_channels\|_generation\|_clientEpoch\|_state\|_connection"`
+Expected: **no output.** `_ReverbHealth`'s *code* should reference only `_live`, `_channelHealthController`, and the `ChannelHealth` type.
+
+The `grep -vE` strips doc comments first, and that is deliberate: `_live`'s doc comment names `_channels` when explaining the difference between what we intend to be subscribed to and what is actually live. That prose is the reason to keep the comment, not a dependency — a grep that did not strip comments would flag it and be wrong.
 
 If anything matches, that member also belongs elsewhere — stop and report it rather than moving something the plan did not name.
 
