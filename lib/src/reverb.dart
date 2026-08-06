@@ -62,13 +62,8 @@ class Reverb extends _ReverbBase
   /// [httpClientFactory] is only consulted when [authEndpoint] is set and
   /// [authorizer] is not, since that is the only case where this class
   /// creates an `http.Client` of its own. `now` lets a test drive latency
-  /// and staleness without real time passing.
-  ///
-  /// [random], [httpClientFactory] and [now] are marked `@visibleForTesting`
-  /// and can only be reached from this package's own `test/` directory.
-  /// [socketFactory] is not: `package:laravel_reverb/testing.dart`'s
-  /// `ReverbFake` wires this same seam to an in-memory socket from `lib/`,
-  /// outside `test/`, so it stays a plain optional parameter instead.
+  /// and staleness without real time passing. All four parameters are
+  /// marked `@visibleForTesting`.
   Reverb({
     required String host,
     required String appKey,
@@ -84,7 +79,7 @@ class Reverb extends _ReverbBase
     super.handleAppLifecycle = true,
     super.pingInterval,
     super.watchdogTimeout,
-    SocketFactory? socketFactory,
+    @visibleForTesting SocketFactory? socketFactory,
     @visibleForTesting math.Random? random,
     @visibleForTesting http.Client Function()? httpClientFactory,
     @visibleForTesting DateTime Function()? now,
@@ -169,3 +164,32 @@ class Reverb extends _ReverbBase
     _ownedHttpClient?.close();
   }
 }
+
+/// Builds a [Reverb] wired to [socketFactory], for `package:laravel_reverb/testing.dart`.
+///
+/// [Reverb]'s `socketFactory` parameter is `@visibleForTesting`, which the
+/// analyzer enforces at every call site outside a `test/` directory —
+/// including `lib/testing.dart`, which ships. Call sites inside this library
+/// are exempt, so routing construction through here keeps the annotation
+/// doing its real job: an application that tries to swap the socket on a
+/// production `Reverb(...)` is still flagged by its own analyzer.
+Reverb buildTestReverb({
+  required String host,
+  required int port,
+  required String appKey,
+  required bool useTls,
+  required String namespace,
+  required bool handleAppLifecycle,
+  required Authorizer authorizer,
+  required SocketFactory socketFactory,
+}) =>
+    Reverb(
+      host: host,
+      port: port,
+      appKey: appKey,
+      useTls: useTls,
+      namespace: namespace,
+      handleAppLifecycle: handleAppLifecycle,
+      authorizer: authorizer,
+      socketFactory: socketFactory,
+    );

@@ -29,7 +29,7 @@ class ReverbFake {
   /// configures a custom event namespace can mirror it here.
   ReverbFake({String namespace = r'App\Events'}) {
     _socket = InMemorySocket();
-    _reverb = Reverb(
+    _reverb = buildTestReverb(
       host: 'localhost',
       port: 8080,
       appKey: 'fake',

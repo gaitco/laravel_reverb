@@ -31,9 +31,12 @@ documented in the README or dartdoc where it affects users today.
 - `Connection.frames`' doc comment says "application-level frames only", but the stream also
   carries `pusher:error` and `pusher:subscription_error`. `Reverb` filters both before channel
   dispatch, so nothing leaks to application code — the comment is simply stale.
-- `@visibleForTesting` on the `socketFactory` and `random` constructor parameters is decorative:
-  the analyzer's verifier checks references to declarations and members, not formal parameters.
-  The doc comments do the real work.
+- `@visibleForTesting` on the `socketFactory` and `random` constructor parameters is enforced by
+  the analyzer at any call site outside this package's `test/` directory. Call sites inside the
+  declaring library (`lib/src/reverb.dart`) are exempt, which is why
+  `package:laravel_reverb/testing.dart` cannot call `Reverb(...)` directly with a fake
+  `socketFactory` — it routes through `buildTestReverb`, a same-library bridge, to keep the
+  annotation intact for every other caller.
 
 ## Test coverage
 
