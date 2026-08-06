@@ -1,6 +1,32 @@
 part of 'reverb.dart';
 
 mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels {
+  /// How many drops have been recovered from. See [ReverbMetrics.reconnectCount].
+  int _reconnectCount = 0;
+
+  /// When the current socket completed its handshake, cleared when it drops.
+  DateTime? _connectedSince;
+
+  bool _pausedByLifecycle = false;
+  bool _observing = false;
+
+  final StreamController<ReverbState> _states =
+      StreamController<ReverbState>.broadcast();
+  final List<void Function()> _reconnectedCallbacks = <void Function()>[];
+
+  ReverbState _state = ReverbState.disconnected;
+  bool _shouldRun = false;
+  bool _everConnected = false;
+  int _attempt = 0;
+
+  /// Bumped on every [disconnect], so a connect loop suspended mid-backoff
+  /// or mid-handshake can tell it has been superseded and must not resume —
+  /// otherwise a fast disconnect()-then-connect() (a lifecycle pause/resume
+  /// under a second, or a logout/login) races a second loop into existence,
+  /// leaving two live sockets both wired to [_onFrame] and every event
+  /// delivered twice.
+  int _generation = 0;
+
   /// The socket id assigned by the server, or null while disconnected.
   String? get socketId => _connection?.socketId;
 
