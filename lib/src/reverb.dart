@@ -127,7 +127,7 @@ class Reverb extends _ReverbBase
   ///
   /// Kept in sync with `pubspec.yaml`'s `version:`; `test/version_test.dart`
   /// fails if the two drift, so bump both together on every release.
-  static const String clientVersion = '0.4.0';
+  static const String clientVersion = '0.5.0';
 
   /// The maximum number of subscribe attempts for a private or presence
   /// channel, including the first, before a failing [Authorizer] is left

@@ -1,3 +1,30 @@
+## 0.5.0
+
+Observability and testability, on a `reverb.dart` that no longer does
+everything itself. All additive — a 0.4.0 app that changes nothing behaves
+identically.
+
+- **`ReverbFake`, for testing your app.** `package:laravel_reverb/testing.dart`
+  hands you a real client on an in-memory socket: `emit` an event as the server
+  would, assert your listener fired, inspect everything the client `sent`, and
+  `drop()` the socket to exercise your `onReconnected`. Subscribe, dispatch and
+  teardown all run the production code paths — only the socket is fake. Private
+  and presence channels authorize against a canned signature, so no auth
+  endpoint is needed.
+- **`reverb.metrics`.** A snapshot of connection quality: the last ping/pong
+  round trip, how many drops have been recovered from, how stale the socket is,
+  and when the current one connected. Read it when you paint — nothing is
+  streamed, because latency changes on every ping.
+- **`reverb.dart` split into part files.** The connect loop, channel registry
+  and health tracking now live in three mixins in their own files, with a base
+  class holding the fields and naming the cross-boundary calls explicitly. No
+  public API changed and no test changed; this is groundwork that made the two
+  features above small edits to focused files instead of more weight on an
+  787-line one.
+- **New test seam:** the `Reverb` constructor takes an optional `now`, joining
+  `socketFactory`, `random` and `httpClientFactory`. It lets a test drive
+  latency and staleness without real time passing.
+
 ## 0.4.0
 
 Reverb-native gaps, closed. All additive — a 0.3.0 app that changes nothing
