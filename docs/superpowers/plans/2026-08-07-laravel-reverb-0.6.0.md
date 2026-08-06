@@ -555,7 +555,7 @@ One detail the regex depends on: `dart format` wraps the longest `show` clause a
 - [ ] **Step 4: Run the suite**
 
 Run: `flutter test`
-Expected: PASS. The count rises from 140 to 143.
+Expected: PASS. The count rises from 142 to 145 — Task 4 added two tests, so the 140 baseline that Tasks 1-3 held is no longer current.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -592,7 +592,7 @@ In `lib/src/reverb.dart`, set `static const String clientVersion = '0.6.0';`.
 - [ ] **Step 2: Run the suite**
 
 Run: `flutter test`
-Expected: PASS at 143, including `version_test.dart` against the new `0.6.0`.
+Expected: PASS at 145, including `version_test.dart` against the new `0.6.0`.
 
 - [ ] **Step 3: Write the CHANGELOG entry**
 
