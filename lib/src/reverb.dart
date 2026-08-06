@@ -13,6 +13,11 @@ import 'protocol.dart';
 
 export 'channel_health.dart' show ChannelHealth;
 
+part 'reverb_base.dart';
+part 'reverb_channels.dart';
+part 'reverb_connect.dart';
+part 'reverb_health.dart';
+
 /// The connection lifecycle of a [Reverb] client.
 enum ReverbState {
   /// Not connected and not trying to be.
@@ -35,7 +40,7 @@ enum ReverbState {
 ///
 /// Owns the channel registry, authorization and the connection lifecycle.
 /// Create one per application and keep it alive.
-class Reverb with WidgetsBindingObserver {
+class Reverb extends _ReverbBase with _ReverbHealth {
   /// Creates a client. Call [connect] to open the socket.
   ///
   /// Provide either [authorizer] or [authEndpoint] to use private and presence
@@ -64,25 +69,26 @@ class Reverb with WidgetsBindingObserver {
     String? authEndpoint,
     Future<Map<String, String>> Function()? authHeaders,
     Authorizer? authorizer,
-    String namespace = r'App\Events',
-    this.onError,
-    this.onLog,
-    this.handleAppLifecycle = true,
-    this.pingInterval,
-    this.watchdogTimeout,
+    super.namespace = r'App\Events',
+    super.onError,
+    super.onLog,
+    super.handleAppLifecycle = true,
+    super.pingInterval,
+    super.watchdogTimeout,
     @visibleForTesting SocketFactory? socketFactory,
     @visibleForTesting math.Random? random,
     @visibleForTesting http.Client Function()? httpClientFactory,
-  })  : _namespace = namespace,
-        _socketFactory = socketFactory ?? WebSocketChannel.connect,
-        _random = random ?? math.Random(),
-        _url = buildSocketUrl(
-          host: host,
-          port: port ?? (useTls ? 443 : 80),
-          appKey: appKey,
-          useTls: useTls,
-          clientVersion: clientVersion,
-          path: path,
+  }) : super(
+          url: buildSocketUrl(
+            host: host,
+            port: port ?? (useTls ? 443 : 80),
+            appKey: appKey,
+            useTls: useTls,
+            clientVersion: clientVersion,
+            path: path,
+          ),
+          socketFactory: socketFactory ?? WebSocketChannel.connect,
+          random: random ?? math.Random(),
         ) {
     final ping = pingInterval;
     final watchdog = watchdogTimeout;
@@ -123,103 +129,6 @@ class Reverb with WidgetsBindingObserver {
   /// giving-up: see [_subscribe]'s doc comment for what restarts it.
   static const int _maxAuthAttempts = 3;
 
-  /// Reports runtime failures that the package handled without throwing.
-  final void Function(Object error, StackTrace? stackTrace)? onError;
-
-  /// Optional log sink, so the host application controls logging.
-  final void Function(String message)? onLog;
-
-  /// Whether to disconnect on background and reconnect on foreground.
-  ///
-  /// Left on, this keeps iOS from holding a socket the OS will silently kill
-  /// and avoids burning battery on a connection nobody is watching. Turn it
-  /// off if the host application manages the socket itself.
-  final bool handleAppLifecycle;
-
-  /// How often to send `pusher:ping` regardless of server activity.
-  ///
-  /// Null (the default) pings only after the server's advertised
-  /// `activity_timeout` of silence, with a missed pong as death detection.
-  /// Set alone, pings run on this schedule instead, but a missed pong after
-  /// each ping still closes the socket — death detection is always on,
-  /// whatever the configuration. Set together with [watchdogTimeout], the
-  /// watchdog replaces the pong deadline: it resets on any inbound frame,
-  /// letting an app notice a half-open socket in seconds rather than a
-  /// minute.
-  final Duration? pingInterval;
-
-  /// How long the socket may go without any inbound frame before it is closed
-  /// and the reconnect path takes over.
-  ///
-  /// Must be longer than [pingInterval] when both are set, or the watchdog
-  /// would fire between pings and reconnect forever.
-  final Duration? watchdogTimeout;
-
-  bool _pausedByLifecycle = false;
-  bool _observing = false;
-
-  final Uri _url;
-  final String _namespace;
-  final SocketFactory _socketFactory;
-  late final Authorizer? _authorizer;
-  final math.Random _random;
-
-  /// The `http.Client` this instance created for the default HTTP
-  /// authorizer, or null when there is none (a caller-supplied [authorizer]
-  /// owns its own client, if any, and public-only usage needs no client at
-  /// all). Closed in [dispose] — a client the caller passed in is theirs to
-  /// close, not this class's.
-  late final http.Client? _ownedHttpClient;
-
-  final Map<String, Channel> _channels = <String, Channel>{};
-
-  /// Bumped per channel name every time [_unsubscribe] actually evicts that
-  /// name's occupant.
-  ///
-  /// Needed because a revived handle is the *same object* the registry held
-  /// before: `identical(_channels[channel.name], channel)` is true again the
-  /// moment [_resubscribe] puts it back, so identity alone cannot tell a
-  /// subscribe attempt from before the eviction apart from one started
-  /// after it. [_subscribe] captures the generation for [channel.name] at
-  /// entry and re-checks it before ever sending, so a stale attempt left
-  /// over from before an unsubscribe+resubscribe cycle is recognized as
-  /// stale even though it is, by identity, the channel currently registered.
-  final Map<String, int> _generations = <String, int>{};
-
-  /// Channels the server has acknowledged with a subscription-succeeded frame.
-  ///
-  /// `_channels` is what we *intend* to be subscribed to and drives the
-  /// reconnect pass; this is what is actually live right now. A channel whose
-  /// authorization failed stays in `_channels` — so the next reconnect retries
-  /// it — while being absent here.
-  final Set<String> _live = <String>{};
-
-  final StreamController<ChannelHealth> _channelHealthController =
-      StreamController<ChannelHealth>.broadcast();
-
-  final StreamController<ReverbState> _states =
-      StreamController<ReverbState>.broadcast();
-  final List<void Function()> _reconnectedCallbacks = <void Function()>[];
-
-  Connection? _connection;
-  ReverbState _state = ReverbState.disconnected;
-  bool _shouldRun = false;
-  bool _everConnected = false;
-  int _attempt = 0;
-
-  /// Bumped on every [disconnect], so a connect loop suspended mid-backoff
-  /// or mid-handshake can tell it has been superseded and must not resume —
-  /// otherwise a fast disconnect()-then-connect() (a lifecycle pause/resume
-  /// under a second, or a logout/login) races a second loop into existence,
-  /// leaving two live sockets both wired to [_onFrame] and every event
-  /// delivered twice.
-  int _generation = 0;
-
-  /// Bumped by `disconnect(forget: true)`. Distinct from `_generations`,
-  /// which is per channel name and guards a stale in-flight subscribe; this
-  /// one is per client and guards post-logout revival.
-  int _clientEpoch = 0;
-
   /// The socket id assigned by the server, or null while disconnected.
   String? get socketId => _connection?.socketId;
 
@@ -228,15 +137,6 @@ class Reverb with WidgetsBindingObserver {
 
   /// Connection state changes.
   Stream<ReverbState> get states => _states.stream;
-
-  /// Per-channel up/down notifications.
-  Stream<ChannelHealth> get channelHealth => _channelHealthController.stream;
-
-  /// Whether the server currently acknowledges [wireName].
-  ///
-  /// Pass the wire name, including any prefix — `'private-users.1'`, not
-  /// `'users.1'`.
-  bool isSubscribed(String wireName) => _live.contains(wireName);
 
   /// Registers [callback] to run after a dropped socket is fully restored.
   ///
@@ -755,33 +655,5 @@ class Reverb with WidgetsBindingObserver {
     if (_state == next) return;
     _state = next;
     if (!_states.isClosed) _states.add(next);
-  }
-
-  /// Updates [wireName]'s liveness and emits on [channelHealth], but only on
-  /// an actual transition — reporting `healthy: false` twice for the same
-  /// channel would be noise a consumer had to dedupe itself.
-  void _setChannelHealth(String wireName, {required bool healthy}) {
-    final changed = healthy ? _live.add(wireName) : _live.remove(wireName);
-    if (!changed) return;
-    if (_channelHealthController.isClosed) return;
-    _channelHealthController
-        .add(ChannelHealth(channel: wireName, healthy: healthy));
-  }
-
-  /// Marks every currently-live channel unhealthy, e.g. when the socket
-  /// drops entirely.
-  void _markAllChannelsDown() {
-    for (final String name in _live.toList()) {
-      _setChannelHealth(name, healthy: false);
-    }
-  }
-
-  /// Clears every presence channel's roster, e.g. when the socket drops
-  /// entirely — membership does not survive a socket, and the resubscribe
-  /// re-seeds it from the server.
-  void _resetPresenceRosters() {
-    for (final Channel channel in _channels.values) {
-      if (channel is PresenceChannel) channel.resetPresence();
-    }
   }
 }
