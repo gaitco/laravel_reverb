@@ -63,7 +63,7 @@ Smallest of the three field moves, first because it proves the pattern. It also 
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `_ReverbHealth` declares `_live` and `_channelHealthController`. `_resetPresenceRosters` now lives on `_ReverbChannels`. `_ReverbHealth`'s `on` clause stays `on _ReverbBase`.
+- Produces: `_ReverbHealth` declares `_live` and `_channelHealthController`. `_resetPresenceRosters` now lives on `_ReverbChannels`. `_ReverbHealth`'s `on` clause stays `on _ReverbBase` for this task. (It was dropped entirely in the release's final cleanup, once the move proved the mixin references nothing from the base — a bare `mixin _ReverbHealth {` states that independence in the type system.)
 
 - [ ] **Step 1: Record the baseline**
 
