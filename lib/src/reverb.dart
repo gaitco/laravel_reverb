@@ -62,8 +62,13 @@ class Reverb extends _ReverbBase
   /// [httpClientFactory] is only consulted when [authEndpoint] is set and
   /// [authorizer] is not, since that is the only case where this class
   /// creates an `http.Client` of its own. `now` lets a test drive latency
-  /// and staleness without real time passing. All four parameters are
-  /// marked `@visibleForTesting`.
+  /// and staleness without real time passing.
+  ///
+  /// [random], [httpClientFactory] and [now] are marked `@visibleForTesting`
+  /// and can only be reached from this package's own `test/` directory.
+  /// [socketFactory] is not: `package:laravel_reverb/testing.dart`'s
+  /// `ReverbFake` wires this same seam to an in-memory socket from `lib/`,
+  /// outside `test/`, so it stays a plain optional parameter instead.
   Reverb({
     required String host,
     required String appKey,
@@ -79,7 +84,7 @@ class Reverb extends _ReverbBase
     super.handleAppLifecycle = true,
     super.pingInterval,
     super.watchdogTimeout,
-    @visibleForTesting SocketFactory? socketFactory,
+    SocketFactory? socketFactory,
     @visibleForTesting math.Random? random,
     @visibleForTesting http.Client Function()? httpClientFactory,
     @visibleForTesting DateTime Function()? now,

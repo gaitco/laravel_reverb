@@ -446,6 +446,39 @@ final reverb = Reverb(
 );
 ```
 
+## Testing your app
+
+`package:laravel_reverb/testing.dart` gives you a real client on a fake
+socket, so your listeners can be tested without a running Reverb server:
+
+```dart
+import 'package:laravel_reverb/testing.dart';
+
+test('the orders screen shows a new order', () async {
+  final fake = ReverbFake();
+  await fake.connect();
+
+  Map<String, dynamic>? received;
+  fake.reverb.channel('orders').listen('OrderCreated', (d) => received = d);
+  await Future<void>.delayed(Duration.zero);
+
+  fake.emit('orders', r'App\Events\OrderCreated', {'id': 7});
+  await Future<void>.delayed(Duration.zero);
+
+  expect(received, {'id': 7});
+  fake.dispose();
+});
+```
+
+The client is real — subscribe, dispatch and teardown run the same code they
+run in production, so the test proves what a server would prove. `emit` takes
+wire names (`private-users.1`, `App\Events\OrderCreated`), `sent` is every
+frame your code sent, and `drop()` kills the socket so you can test whatever
+your `onReconnected` does.
+
+Private and presence channels authorize against a canned signature, so no auth
+endpoint is needed.
+
 ## Migrating from pusher_channels_flutter
 
 | pusher_channels_flutter | laravel_reverb |
