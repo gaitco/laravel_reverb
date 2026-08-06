@@ -1,6 +1,12 @@
 part of 'reverb.dart';
 
 mixin _ReverbChannels on _ReverbBase, _ReverbHealth {
+  /// The maximum number of subscribe attempts for a private or presence
+  /// channel, including the first, before a failing [Authorizer] is left
+  /// unsubscribed rather than retried immediately again. Not a permanent
+  /// giving-up: see [_subscribe]'s doc comment for what restarts it.
+  static const int _maxAuthAttempts = 3;
+
   /// Returns the public channel named [name], creating it on first use.
   ///
   /// The handle returned stays usable for as long as you hold it, even
@@ -146,7 +152,7 @@ mixin _ReverbChannels on _ReverbBase, _ReverbHealth {
         }
       } on Object catch (error, stackTrace) {
         onError?.call(error, stackTrace);
-        if (attempt + 1 >= Reverb._maxAuthAttempts) {
+        if (attempt + 1 >= _maxAuthAttempts) {
           _setChannelHealth(channel.name, healthy: false);
           return;
         }

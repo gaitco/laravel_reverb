@@ -26,6 +26,7 @@ void main() {
       const ChannelHealth(channel: 'orders', healthy: true).healthy,
       isTrue,
     );
+    expect(const ReverbMetrics().reconnectCount, 0);
   });
 
   test('every error type shares the sealed ReverbException base', () {

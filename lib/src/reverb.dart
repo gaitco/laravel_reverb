@@ -129,12 +129,6 @@ class Reverb extends _ReverbBase
   /// fails if the two drift, so bump both together on every release.
   static const String clientVersion = '0.5.0';
 
-  /// The maximum number of subscribe attempts for a private or presence
-  /// channel, including the first, before a failing [Authorizer] is left
-  /// unsubscribed rather than retried immediately again. Not a permanent
-  /// giving-up: see [_subscribe]'s doc comment for what restarts it.
-  static const int _maxAuthAttempts = 3;
-
   /// A snapshot of connection quality, read on demand.
   ///
   /// Nothing streams these values: latency changes on every ping, so a
@@ -142,12 +136,20 @@ class Reverb extends _ReverbBase
   /// anything it displays actually changes. Read this when you paint.
   ReverbMetrics get metrics {
     final lastFrameAt = _connection?.lastFrameAt;
+    final elapsedSinceLastFrame =
+        lastFrameAt == null ? null : _now().difference(lastFrameAt);
 
     return ReverbMetrics(
       lastLatency: _connection?.lastLatency,
       reconnectCount: _reconnectCount,
-      sinceLastFrame:
-          lastFrameAt == null ? null : _now().difference(lastFrameAt),
+      // Clamped for the same reason as Connection's ping/pong latency: a
+      // clock step between the last frame and this read can otherwise make
+      // "now" appear before it, rendering a negative duration.
+      sinceLastFrame: elapsedSinceLastFrame == null
+          ? null
+          : (elapsedSinceLastFrame.isNegative
+              ? Duration.zero
+              : elapsedSinceLastFrame),
       connectedSince: _connectedSince,
     );
   }
@@ -182,6 +184,7 @@ Reverb buildTestReverb({
   required bool handleAppLifecycle,
   required Authorizer authorizer,
   required SocketFactory socketFactory,
+  void Function(Object error, StackTrace? stackTrace)? onError,
 }) =>
     Reverb(
       host: host,
@@ -192,4 +195,5 @@ Reverb buildTestReverb({
       handleAppLifecycle: handleAppLifecycle,
       authorizer: authorizer,
       socketFactory: socketFactory,
+      onError: onError,
     );

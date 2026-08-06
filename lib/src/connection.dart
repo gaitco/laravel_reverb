@@ -66,6 +66,9 @@ class Connection {
   final StreamController<ReverbFrame> _frames =
       StreamController<ReverbFrame>.broadcast();
   final Completer<void> _closed = Completer<void>();
+
+  /// The clock. A test seam so latency and staleness can be driven without
+  /// real time passing; production code always gets [DateTime.now].
   final DateTime Function() _now;
 
   StreamChannel<dynamic>? _socket;
@@ -191,7 +194,11 @@ class Connection {
       case 'pusher:pong':
         final sentAt = _pingSentAt;
         if (sentAt != null) {
-          _lastLatency = _now().difference(sentAt);
+          final elapsed = _now().difference(sentAt);
+          // An NTP step or a manual clock change between ping and pong can
+          // put "now" before sentAt; clamp so a host never renders a
+          // negative latency like "-2:14:33".
+          _lastLatency = elapsed.isNegative ? Duration.zero : elapsed;
           _pingSentAt = null;
         }
       case 'pusher:error':

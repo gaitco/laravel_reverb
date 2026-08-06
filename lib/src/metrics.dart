@@ -32,4 +32,22 @@ class ReverbMetrics {
   /// When the current socket completed its handshake, or null while
   /// disconnected.
   final DateTime? connectedSince;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ReverbMetrics &&
+          other.lastLatency == lastLatency &&
+          other.reconnectCount == reconnectCount &&
+          other.sinceLastFrame == sinceLastFrame &&
+          other.connectedSince == connectedSince;
+
+  @override
+  int get hashCode =>
+      Object.hash(lastLatency, reconnectCount, sinceLastFrame, connectedSince);
+
+  @override
+  String toString() => 'ReverbMetrics(lastLatency: $lastLatency, '
+      'reconnectCount: $reconnectCount, sinceLastFrame: $sinceLastFrame, '
+      'connectedSince: $connectedSince)';
 }

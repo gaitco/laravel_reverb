@@ -57,4 +57,27 @@ void main() {
     expect(received, <String, dynamic>{'body': 'hi'});
     fake.dispose();
   });
+
+  test('drop() reconnects and fires onReconnected', () async {
+    final fake = ReverbFake();
+    await fake.connect();
+
+    var reconnected = false;
+    fake.reverb.onReconnected(() => reconnected = true);
+
+    await fake.drop();
+
+    // The first backoff attempt is ~1000-1250ms; poll with a generous
+    // deadline rather than sleeping a fixed amount (see metrics_test.dart's
+    // reconnect test for why a fixed sleep is flaky).
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (fake.reverb.metrics.reconnectCount == 0 &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    expect(fake.reverb.metrics.reconnectCount, 1);
+    expect(reconnected, isTrue);
+    fake.dispose();
+  });
 }

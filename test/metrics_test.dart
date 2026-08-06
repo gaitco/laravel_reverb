@@ -66,12 +66,59 @@ void main() {
     expect(reverb.metrics.connectedSince, DateTime(2026));
 
     now = now.add(const Duration(seconds: 1));
+    // Subscribed before the drop, not after: reverb.states is a broadcast
+    // stream that does not replay, so listening after sockets[0].serverClose()
+    // could miss the reconnecting transition if it fires first and hang this
+    // await for the rest of the test's timeout.
+    final reconnecting = reverb.states.firstWhere(
+      (state) => state == ReverbState.reconnecting,
+    );
     await sockets[0].serverClose();
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await reconnecting.timeout(const Duration(seconds: 5));
+    // sockets[1]'s stream is single-subscription: this is buffered and
+    // delivered as soon as the retry's Connection subscribes to it, whenever
+    // that backoff timer fires — no need to wait for it first.
     sockets[1].emitJson(handshakeFrame());
-    await Future<void>.delayed(Duration.zero);
+
+    // The real (unseeded, by design — see this test's history) backoff can
+    // take up to ~1250ms for the first attempt, so poll rather than sleep a
+    // fixed amount.
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (reverb.metrics.reconnectCount == 0 &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
 
     expect(reverb.metrics.reconnectCount, 1);
+
+    reverb.dispose();
+  });
+
+  test('sinceLastFrame reflects the clock advancing since the last frame',
+      () async {
+    final socket = FakeSocket();
+    var now = DateTime(2026);
+
+    final reverb = Reverb(
+      host: 'localhost',
+      port: 8080,
+      appKey: 'key',
+      useTls: false,
+      socketFactory: factoryFor(socket),
+      now: () => now,
+    );
+
+    expect(reverb.metrics.sinceLastFrame, isNull);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    expect(reverb.metrics.sinceLastFrame, Duration.zero);
+
+    now = now.add(const Duration(seconds: 45));
+
+    expect(reverb.metrics.sinceLastFrame, const Duration(seconds: 45));
 
     reverb.dispose();
   });
