@@ -1041,4 +1041,30 @@ void main() {
       2,
     );
   });
+
+  test('delivers pusher:cache_miss to a listener on a cache channel', () async {
+    final socket = FakeSocket();
+    final reverb = reverbFor(socket);
+
+    final connected = reverb.connect();
+    socket.emitJson(handshakeFrame());
+    await connected;
+
+    Map<String, dynamic>? missed;
+    reverb.channel('cache-orders').listen(
+          'pusher:cache_miss',
+          (Map<String, dynamic> data) => missed = data,
+        );
+    await settle();
+
+    socket.emitJson(<String, dynamic>{
+      'event': 'pusher:cache_miss',
+      'channel': 'cache-orders',
+      'data': '{}',
+    });
+    await settle();
+
+    expect(missed, isNotNull);
+    reverb.dispose();
+  });
 }

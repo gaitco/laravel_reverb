@@ -171,6 +171,20 @@ void main() {
     test('leaves the name alone when the namespace is empty', () {
       expect(resolveEventName('OrderCreated', ''), 'OrderCreated');
     });
+
+    test('passes a pusher protocol event through literally', () {
+      expect(
+        resolveEventName('pusher:cache_miss', r'App\Events'),
+        'pusher:cache_miss',
+      );
+    });
+
+    test('still namespaces a bare name that merely mentions cache', () {
+      expect(
+        resolveEventName('CacheMiss', r'App\Events'),
+        r'App\Events\CacheMiss',
+      );
+    });
   });
 
   group('isFatalErrorCode', () {

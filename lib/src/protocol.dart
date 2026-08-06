@@ -98,7 +98,12 @@ Duration backoffDelay(int attempt, math.Random random) {
 /// A bare name is namespaced (`OrderCreated` becomes `App\Events\OrderCreated`).
 /// A leading `.` marks a literal `broadcastAs()` name, and a leading `\` marks a
 /// fully qualified class name; both are returned with the marker stripped.
+///
+/// A `pusher:` prefix marks a protocol event rather than an application one —
+/// `pusher:cache_miss` is the reachable example — and is returned untouched,
+/// since namespacing it could never match anything on the wire.
 String resolveEventName(String name, String namespace) {
+  if (name.startsWith('pusher:')) return name;
   if (name.startsWith('.') || name.startsWith(r'\')) return name.substring(1);
   if (namespace.isEmpty) return name;
   return '$namespace\\$name';

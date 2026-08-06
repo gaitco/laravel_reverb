@@ -196,6 +196,32 @@ channel.listenForWhisper('typing', (data) => print('${data['user']} is typing'))
 channel.whisper('typing', {'user': 'Alice'});
 ```
 
+### Cache channel
+
+Reverb's `cache-`, `private-cache-` and `presence-cache-` channels replay the
+last event broadcast on them to each new subscriber, so a screen that opens
+after the fact still gets current state without a REST round-trip.
+
+A cache hit arrives as an ordinary event — nothing special to write:
+
+```dart
+reverb.channel('cache-scoreboard').listen(
+  'ScoreUpdated',
+  (Map<String, dynamic> data) => setState(() => score = data['score'] as int),
+);
+```
+
+A cache **miss** — nothing has been broadcast on that channel yet — arrives as
+the protocol event `pusher:cache_miss`. Listen for it when "no value yet" needs
+different handling from "still connecting":
+
+```dart
+reverb.channel('cache-scoreboard').listen(
+  'pusher:cache_miss',
+  (_) => setState(() => score = 0),
+);
+```
+
 ## Event names
 
 A bare event name is namespaced against `App\Events` (or whatever `namespace`
@@ -203,6 +229,10 @@ you passed to the constructor), so `listen('OrderCreated')` matches the wire
 event `App\Events\OrderCreated`. A leading dot means a literal
 `broadcastAs()` name: `listen('.order.created')` matches an event broadcast as
 `order.created`.
+
+Names beginning with `pusher:` are protocol events, not application events, and
+are never namespaced — `listen('pusher:cache_miss')` matches that wire event
+exactly.
 
 ## Reconnection
 
