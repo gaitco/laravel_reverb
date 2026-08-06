@@ -103,6 +103,23 @@ class ReverbFake {
   /// Connects the client and completes the handshake.
   Future<void> connect() => _reverb.connect();
 
+  /// The live socket, or a [StateError] naming the mistake.
+  ///
+  /// [emit], [emitFrame] and [drop] all need a connected socket, and
+  /// `_socket!` would report that with a null-check error — accurate, but
+  /// useless to whoever is reading the test failure. This says what to do
+  /// about it instead.
+  InMemorySocket get _liveSocket {
+    final socket = _socket;
+    if (socket == null) {
+      throw StateError(
+        'ReverbFake: call connect() before emit(), emitFrame() or drop() — '
+        'there is no socket until the client has connected.',
+      );
+    }
+    return socket;
+  }
+
   /// Delivers [event] on [channel] as the server would.
   ///
   /// [channel] is the wire name, including any prefix — `'private-users.1'`,
@@ -114,19 +131,29 @@ class ReverbFake {
     String event, [
     Map<String, dynamic> data = const <String, dynamic>{},
   ]) {
-    _socket!.emitJson(<String, dynamic>{
+    _liveSocket.emitJson(<String, dynamic>{
       'event': event,
       'channel': channel,
       'data': data,
     });
   }
 
+  /// Delivers [frame] exactly as written, for what [emit] cannot express.
+  ///
+  /// [emit] always builds an application event with a channel and a data
+  /// payload, which is the common case. Two things need more than that:
+  /// seeding a presence roster, which arrives as a
+  /// `pusher_internal:subscription_succeeded` frame carrying `presence.ids`
+  /// and `presence.hash`; and connection-level frames such as `pusher:error`,
+  /// which carry no channel at all. Pass the frame the server would send.
+  void emitFrame(Map<String, dynamic> frame) => _liveSocket.emitJson(frame);
+
   /// Drops the socket from the server side.
   ///
   /// The client reconnects on its own backoff schedule, re-answering the
   /// handshake automatically, so a test that wants to observe the reconnect
   /// need only wait it out.
-  Future<void> drop() => _socket!.serverClose();
+  Future<void> drop() => _liveSocket.serverClose();
 
   /// Releases the client. Call this at the end of every test.
   void dispose() => _reverb.dispose();

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:laravel_reverb/laravel_reverb.dart';
 import 'package:laravel_reverb/testing.dart';
 
 void main() {
@@ -78,6 +79,52 @@ void main() {
 
     expect(fake.reverb.metrics.reconnectCount, 1);
     expect(reconnected, isTrue);
+    fake.dispose();
+  });
+
+  test('seeds a presence roster through emitFrame', () async {
+    final fake = ReverbFake();
+    await fake.connect();
+
+    List<PresenceMember>? present;
+    fake.reverb.presence('room.1').members(
+          here: (List<PresenceMember> members) => present = members,
+        );
+    await Future<void>.delayed(Duration.zero);
+
+    fake.emitFrame(<String, dynamic>{
+      'event': 'pusher_internal:subscription_succeeded',
+      'channel': 'presence-room.1',
+      'data': <String, dynamic>{
+        'presence': <String, dynamic>{
+          'ids': <String>['1', '2'],
+          'hash': <String, dynamic>{
+            '1': <String, dynamic>{'name': 'Ada'},
+            '2': <String, dynamic>{'name': 'Linus'},
+          },
+        },
+      },
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(present!.map((PresenceMember m) => m.id), <String>['1', '2']);
+    expect(present!.first.info['name'], 'Ada');
+    fake.dispose();
+  });
+
+  test('emit before connect explains itself', () {
+    final fake = ReverbFake();
+
+    expect(
+      () => fake.emit('orders', 'X'),
+      throwsA(
+        isA<StateError>().having(
+          (StateError e) => e.message,
+          'message',
+          contains('connect()'),
+        ),
+      ),
+    );
     fake.dispose();
   });
 }

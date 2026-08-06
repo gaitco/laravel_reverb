@@ -476,6 +476,31 @@ wire names (`private-users.1`, `App\Events\OrderCreated`), `sent` is every
 frame your code sent, and `drop()` kills the socket so you can test whatever
 your `onReconnected` does.
 
+Presence rosters are seeded with `emitFrame`, which sends a frame verbatim —
+`emit` always builds an application event, and a roster arrives as a protocol
+frame instead:
+
+```dart
+fake.reverb.presence('room.1').members(here: (members) => print(members));
+
+fake.emitFrame({
+  'event': 'pusher_internal:subscription_succeeded',
+  'channel': 'presence-room.1',
+  'data': {
+    'presence': {
+      'ids': ['1', '2'],
+      'hash': {
+        '1': {'name': 'Ada'},
+        '2': {'name': 'Linus'},
+      },
+    },
+  },
+});
+```
+
+`emitFrame` is also how you deliver a channel-less frame such as
+`pusher:error`.
+
 Private and presence channels authorize against a canned signature, so no auth
 endpoint is needed.
 
