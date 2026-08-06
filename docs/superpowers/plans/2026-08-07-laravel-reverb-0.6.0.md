@@ -239,10 +239,13 @@ Cut from `lib/src/reverb_base.dart` and paste into `mixin _ReverbConnect`, above
 
 - [ ] **Step 2: Confirm the base is down to 13 fields**
 
-Run: `grep -cE "^  (final |late final )?[A-Za-z_][A-Za-z0-9_<>?, .]*\??\s+_?[a-zA-Z][A-Za-z0-9_]*\s*(=|;)" lib/src/reverb_base.dart`
-Expected: **13**.
+**List them, do not count them with a regex.** Read `lib/src/reverb_base.dart` and write out every field the class still declares, then compare that list against the target partition table above.
 
-If the count differs, list what is left and compare against the target partition in this plan before proceeding. A field left behind is a real finding, not a rounding error.
+Expected, exactly these 13 and nothing else:
+
+`onError`, `onLog`, `handleAppLifecycle`, `pingInterval`, `watchdogTimeout`, `_url`, `_namespace`, `_socketFactory`, `_random`, `_now`, `_authorizer`, `_ownedHttpClient`, `_connection`
+
+A regex is the wrong tool here and an earlier draft of this plan got it wrong twice: a character class for the type will miss the function-typed fields (`onError`, `onLog`, `_now` are all `Function` types containing parentheses), and a looser pattern picks up the constructor's initializer-list entries as if they were declarations. Enumerating thirteen names by eye is faster than debugging the pattern, and it checks identity rather than just quantity — a field left behind and a field moved to the wrong mixin produce the same count.
 
 - [ ] **Step 3: Confirm `Reverb` still compiles against the moved state**
 
