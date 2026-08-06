@@ -1060,7 +1060,6 @@ void main() {
     socket.emitJson(<String, dynamic>{
       'event': 'pusher:cache_miss',
       'channel': 'cache-orders',
-      'data': '{}',
     });
     await settle();
 

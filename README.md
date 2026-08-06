@@ -62,8 +62,11 @@ REVERB_SERVER_PATH=
 
 These map directly onto the `Reverb` constructor: `REVERB_APP_KEY` to
 `appKey`, `REVERB_HOST` to `host`, `REVERB_PORT` to `port`, and
-`REVERB_SERVER_PATH` to `path` — set that last one only if your Reverb server
-sits behind a reverse proxy on a subpath, such as `/ws`.
+`REVERB_SERVER_PATH` to `path` — set that last one only if your Reverb
+server sits behind a reverse proxy on a subpath, such as `/ws`, and your proxy
+forwards that prefix to Reverb unchanged. If the proxy strips the prefix
+instead, set `path` to what the client should dial and leave
+`REVERB_SERVER_PATH` empty.
 
 ## Local development
 
@@ -81,8 +84,10 @@ not your Mac:
 | Physical device | Your machine's LAN IP, e.g. `192.168.1.20` |
 
 ```dart
-// `Platform` comes from dart:io.
-final host = Platform.isAndroid ? '10.0.2.2' : 'localhost';
+// defaultTargetPlatform comes from package:flutter/foundation.dart.
+final host = defaultTargetPlatform == TargetPlatform.android
+    ? '10.0.2.2'
+    : 'localhost';
 
 final reverb = Reverb(
   host: host,
@@ -93,18 +98,23 @@ final reverb = Reverb(
 );
 ```
 
-**Android blocks cleartext.** On API 28 and above, `ws://` is refused before
-the socket is ever opened, which surfaces as a connection failure with no
-server-side log. Allow it for debug builds only, in
-`android/app/src/debug/AndroidManifest.xml`:
+**Android may block cleartext.** Android's cleartext restrictions apply from
+API 28, and whether a particular networking stack honours them varies. The
+opt-in costs nothing on a debug build and removes the question — it also
+covers any WebView or native-plugin traffic your app makes to the same host.
+In `android/app/src/debug/AndroidManifest.xml`:
 
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application android:usesCleartextTraffic="true" />
 </manifest>
 ```
 
-Putting this in the debug manifest keeps release builds cleartext-free.
+Keep the `INTERNET` permission line. That file is where Flutter's template
+declares it for debug builds, so replacing the file without it leaves a debug
+build with no networking at all. Putting the cleartext flag here keeps release
+builds cleartext-free.
 
 **Self-signed TLS is not worth it locally.** If you terminate TLS in front of
 Reverb with a self-signed certificate, Dart rejects it, and there is no hook
@@ -117,7 +127,7 @@ the simpler answer. Use real certificates in staging and production, where
 In order, the three usual causes:
 
 1. `host` is `localhost` — an Android emulator needs `10.0.2.2`.
-2. Cleartext is blocked — add the debug manifest above.
+2. Cleartext may be blocked — add the debug manifest above and retry.
 3. `authEndpoint` still points at `localhost` — it needs the same
    platform-specific host as the socket.
 
@@ -293,6 +303,11 @@ event `App\Events\OrderCreated`. A leading dot means a literal
 Names beginning with `pusher:` are protocol events, not application events, and
 are never namespaced — `listen('pusher:cache_miss')` matches that wire event
 exactly.
+
+Connection-level protocol events are the exception: `pusher:error`,
+`pusher:subscription_error` and the ping/pong handshake are consumed by the
+client before channel dispatch, and surface through `onError` and
+`channelHealth` rather than through `listen`.
 
 ## Reconnection
 
