@@ -25,8 +25,8 @@
 
 | File | Responsibility | Change |
 |---|---|---|
-| `lib/src/reverb.dart` | Library head: imports, `ReverbState`, `part` directives, `class Reverb` (constructor, public getters, `_onFrame`, `dispose`) | Modify: shrinks from 787 lines to ~200 |
-| `lib/src/reverb_base.dart` | `abstract class _ReverbBase` — every field, plus abstract declarations for cross-mixin calls | Create (part) |
+| `lib/src/reverb.dart` | Library head: imports, `ReverbState`, `part` directives, `class Reverb` (constructor, statics, `metrics`, `dispose`) | Modify: shrinks from 787 lines to ~200 |
+| `lib/src/reverb_base.dart` | `abstract class _ReverbBase` — every field, and nothing else | Create (part) |
 | `lib/src/reverb_health.dart` | `mixin _ReverbHealth` — channel liveness and presence-roster reset | Create (part) |
 | `lib/src/reverb_channels.dart` | `mixin _ReverbChannels` — the channel registry, authorization and subscribe/unsubscribe | Create (part) |
 | `lib/src/reverb_connect.dart` | `mixin _ReverbConnect` — connect/disconnect, the backoff loop, app lifecycle | Create (part) |
@@ -96,24 +96,24 @@ Give `_ReverbBase` a constructor taking the constructor-set values:
 
 `_authorizer` and `_ownedHttpClient` stay `late final` and are still assigned from `Reverb`'s constructor body — a `late final` field is assignable once from anywhere in the same library, and part files are the same library.
 
-- [ ] **Step 3: Declare the cross-mixin methods as abstract**
+- [ ] **Step 3: Do not declare anything abstract**
 
-Still in `_ReverbBase`, add these declarations. They exist so that a method in one mixin can call a method implemented in another; without them the analyzer cannot resolve the call.
+`_ReverbBase` holds fields only. Cross-mixin calls are resolved by **chaining the mixins' `on` clauses** rather than by forward-declaring private abstract members in the base:
 
 ```dart
-  // Implemented by _ReverbHealth, called from _ReverbChannels and
-  // _ReverbConnect. Declared here because a mixin cannot see a member
-  // another mixin declares — the base is the only type all of them share.
-  void _setChannelHealth(String wireName, {required bool healthy});
-  void _markAllChannelsDown();
-  void _resetPresenceRosters();
+mixin _ReverbHealth   on _ReverbBase
+mixin _ReverbChannels on _ReverbBase, _ReverbHealth
+mixin _ReverbConnect  on _ReverbBase, _ReverbHealth, _ReverbChannels
 
-  // Implemented by _ReverbChannels, called from _ReverbConnect.
-  Future<void> _subscribeAll();
-
-  // Implemented by Reverb itself, called from _ReverbConnect._open.
-  void _onFrame(ReverbFrame frame);
+class Reverb extends _ReverbBase
+    with _ReverbHealth, _ReverbChannels, _ReverbConnect
 ```
+
+Each mixin's `on` clause names exactly what it calls, so the dependency direction is stated once, in one place, and enforced by the compiler. The application order in `Reverb`'s `with` clause satisfies every constraint.
+
+A private abstract declaration in the base would work too, but the analyzer reports each one as `unused_element` — calls resolve to the concrete override, never the stub — and suppressing that would mean an `// ignore:` comment per declaration. The `on` chain needs none.
+
+This step is therefore a no-op by design. It exists to say what NOT to add.
 
 - [ ] **Step 4: Create the health mixin**
 
@@ -212,7 +212,7 @@ The largest of the three moves: the registry, authorization, and the subscribe/u
 
 - [ ] **Step 1: Move the members**
 
-Into `lib/src/reverb_channels.dart`, declaring `mixin _ReverbChannels on _ReverbBase`, **move verbatim with their doc comments** these members from `Reverb`:
+Into `lib/src/reverb_channels.dart`, declaring `mixin _ReverbChannels on _ReverbBase, _ReverbHealth`, **move verbatim with their doc comments** these members from `Reverb`:
 
 - `channel(String name)`
 - `private(String name)`
@@ -221,9 +221,12 @@ Into `lib/src/reverb_channels.dart`, declaring `mixin _ReverbChannels on _Reverb
 - `_requireAuthorizer`
 - `_resubscribe`
 - `_subscribe`
-- `_subscribeAll` — add `@override`, since the base declares it
+- `_subscribeAll`
 - `_unsubscribe`
 - `_sendFor`
+- `_onFrame` — frame dispatch belongs here: it routes to `_channels` and calls `_setChannelHealth`, and putting it in this mixin is what lets `_ReverbConnect` reach it through the `on` chain without a forward declaration
+
+The `on _ReverbHealth` clause is what makes `_setChannelHealth` resolve. No `@override` annotations are needed on anything — nothing is being overridden.
 
 `_maxAuthAttempts` stays on `Reverb` as a `static const`; `_subscribe` references it as `Reverb._maxAuthAttempts`. (A mixin cannot see a subclass's statics unqualified.)
 
@@ -265,11 +268,11 @@ behaviour change: every existing test passes untouched."
 
 **Interfaces:**
 - Consumes: `_ReverbBase` from Task 1; `_subscribeAll` from Task 2.
-- Produces: `mixin _ReverbConnect on _ReverbBase`. `class Reverb extends _ReverbBase with _ReverbHealth, _ReverbChannels, _ReverbConnect`. After this task `lib/src/reverb.dart` holds only the library head, `ReverbState`, the part directives, and `Reverb`'s constructor, statics, public getters, `_onFrame` and `dispose`.
+- Produces: `mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels`. `class Reverb extends _ReverbBase with _ReverbHealth, _ReverbChannels, _ReverbConnect`. After this task `lib/src/reverb.dart` holds only the library head, `ReverbState`, the part directives, and `Reverb`'s constructor, statics and `dispose`.
 
 - [ ] **Step 1: Move the members**
 
-Into `lib/src/reverb_connect.dart`, declaring `mixin _ReverbConnect on _ReverbBase`, **move verbatim with their doc comments** these members from `Reverb`:
+Into `lib/src/reverb_connect.dart`, declaring `mixin _ReverbConnect on _ReverbBase, _ReverbHealth, _ReverbChannels`, **move verbatim with their doc comments** these members from `Reverb`:
 
 - `connect()`
 - `disconnect({bool forget = false})`
