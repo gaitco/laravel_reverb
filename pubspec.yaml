@@ -1,8 +1,8 @@
 name: laravel_reverb
 description: Laravel Reverb realtime client for Flutter. Echo-style API, pure Dart Pusher protocol, auto-reconnect, presence channels and client events.
-# Kept in sync with Reverb.clientVersion in lib/src/reverb.dart by hand —
-# bump both on every release, or the socket URL ships a stale `version=`.
-version: 0.3.0
+# Kept in sync with Reverb.clientVersion in lib/src/reverb.dart —
+# test/version_test.dart fails if the two drift.
+version: 0.4.0
 homepage: https://gaitco.com
 repository: https://github.com/gaitco/laravel_reverb
 issue_tracker: https://github.com/gaitco/laravel_reverb/issues

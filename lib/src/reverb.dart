@@ -113,9 +113,9 @@ class Reverb with WidgetsBindingObserver {
 
   /// The package version reported to the server in the socket URL.
   ///
-  /// Kept in sync with `pubspec.yaml`'s `version:` by hand — nothing enforces
-  /// the two matching, so bump both together on every release.
-  static const String clientVersion = '0.3.0';
+  /// Kept in sync with `pubspec.yaml`'s `version:`; `test/version_test.dart`
+  /// fails if the two drift, so bump both together on every release.
+  static const String clientVersion = '0.4.0';
 
   /// The maximum number of subscribe attempts for a private or presence
   /// channel, including the first, before a failing [Authorizer] is left

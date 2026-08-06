@@ -27,19 +27,19 @@ production bug in a shipped app:
 
 ## Is this the right package for you?
 
+This is a client for **self-hosted Laravel Reverb**, and its scope is
+deliberately that. It does not support Pusher's hosted service, clusters or
+API-key configuration, and it does not implement encrypted channels
+(`private-encrypted-`) — Reverb has no server-side support for them either, so
+they are a Pusher-hosted feature rather than something missing here.
+
+If you are on Pusher's hosted service,
 [`pusher_reverb_flutter`](https://pub.dev/packages/pusher_reverb_flutter) is a
-mature, actively maintained alternative that solves much of the same problem,
-and it is the better choice if you need any of these — none of which this
-package supports:
+mature, actively maintained alternative and the better choice.
 
-- **Encrypted channels** (`private-encrypted-`)
-- **Pusher's hosted service**, clusters or API-key configuration — this package
-  targets self-hosted Reverb only
-- **Custom WebSocket paths**
-
-Pick this one if ref-counted channel teardown, app lifecycle handling, or
-Echo-compatible event names are what you're missing. Both are MIT and speak the
-same protocol, so switching either direction is a mechanical change.
+Pick this one if you run Reverb yourself and want ref-counted channel teardown,
+app lifecycle handling, or Echo-compatible event names. Both are MIT and speak
+the same protocol, so switching either direction is a mechanical change.
 
 ## Install
 

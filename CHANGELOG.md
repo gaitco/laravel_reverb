@@ -1,3 +1,23 @@
+## 0.4.0
+
+Reverb-native gaps, closed. All additive — a 0.3.0 app that changes nothing
+behaves identically.
+
+- **Custom server path.** `path` mirrors Reverb's `REVERB_SERVER_PATH`, so a
+  server behind a reverse proxy at `/ws` is reachable: the client dials
+  `/ws/app/KEY` instead of `/app/KEY`. Leading and trailing slashes are
+  optional. Defaults to empty, which is the 0.3.0 URL exactly.
+- **Cache channels.** `cache-`, `private-cache-` and `presence-cache-` channels
+  now work end to end. A cache hit always arrived as an ordinary event; the
+  miss did not arrive at all, because `pusher:cache_miss` was namespaced into
+  an event name no server sends. Any `pusher:`-prefixed name now resolves
+  literally, so `listen('pusher:cache_miss', ...)` reaches a listener.
+- **Documented local development** — emulator hosts, Android cleartext, and
+  why self-signed TLS is not worth it locally.
+- **Scope, stated plainly.** Encrypted channels and Pusher clusters are out of
+  scope because Reverb does not implement them, not because they are pending.
+  The README says so instead of listing them as shortfalls.
+
 ## 0.3.0
 
 Hardening drawn from a production Reverb client running in a realtime game.
