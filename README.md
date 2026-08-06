@@ -65,6 +65,63 @@ These map directly onto the `Reverb` constructor: `REVERB_APP_KEY` to
 `REVERB_SERVER_PATH` to `path` — set that last one only if your Reverb server
 sits behind a reverse proxy on a subpath, such as `/ws`.
 
+## Local development
+
+A Reverb server started with `php artisan reverb:start` listens on
+`0.0.0.0:8080` over plain HTTP. Three things bite in that setup, all of them
+platform quirks rather than package behaviour:
+
+**The host differs per platform.** `localhost` on a device means the device,
+not your Mac:
+
+| Target | `host` |
+|---|---|
+| iOS simulator | `localhost` |
+| Android emulator | `10.0.2.2` |
+| Physical device | Your machine's LAN IP, e.g. `192.168.1.20` |
+
+```dart
+final reverb = Reverb(
+  host: Platform.isAndroid ? '10.0.2.2' : 'localhost',
+  port: 8080,
+  appKey: 'your-reverb-app-key',
+  useTls: false,
+  authEndpoint: 'http://10.0.2.2:8000/broadcasting/auth',
+);
+```
+
+**Android blocks cleartext.** On API 28 and above, `ws://` is refused before
+the socket is ever opened, which surfaces as a connection failure with no
+server-side log. Allow it for debug builds only, in
+`android/app/src/debug/AndroidManifest.xml`:
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>
+```
+
+Putting this in the debug manifest keeps release builds cleartext-free.
+
+**Self-signed TLS is not worth it locally.** If you terminate TLS in front of
+Reverb with a self-signed certificate, Dart rejects it, and there is no hook
+in this package to override that — `useTls: false` over the local network is
+the simpler answer. Use real certificates in staging and production, where
+`useTls: true` and `port: 443` are the defaults.
+
+### It connects on iOS but not Android
+
+In order, the three usual causes:
+
+1. `host` is `localhost` — an Android emulator needs `10.0.2.2`.
+2. Cleartext is blocked — add the debug manifest above.
+3. `authEndpoint` still points at `localhost` — it needs the same
+   platform-specific host as the socket.
+
+Pass `onLog: print` and `onError: (e, _) => print(e)` to the constructor while
+debugging; between them, every connection attempt and every failure is
+visible.
+
 ## How it fits together
 
 ![Architecture: your Flutter app talks to laravel_reverb, which speaks the Pusher wire protocol to your Reverb server and authorizes private channels against /broadcasting/auth](https://raw.githubusercontent.com/gaitco/laravel_reverb/main/assets/architecture.png)
